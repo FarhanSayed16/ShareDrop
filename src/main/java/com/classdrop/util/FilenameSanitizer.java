@@ -4,6 +4,18 @@ import com.classdrop.exception.TransferFailedException;
 
 public final class FilenameSanitizer {
 
+    public void rejectIfBlockedExtension(String originalName) throws TransferFailedException {
+        if (originalName == null) return;
+        String lower = originalName.toLowerCase();
+        int slash = Math.max(lower.lastIndexOf('/'), lower.lastIndexOf('\\'));
+        String base = slash >= 0 ? lower.substring(slash + 1) : lower;
+        for (String ext : Constants.BLOCKED_EXTENSIONS) {
+            if (base.endsWith(ext)) {
+                throw new TransferFailedException("File type not allowed in classroom: " + ext);
+            }
+        }
+    }
+
     public String sanitize(String originalName) {
         if (originalName == null || originalName.trim().isEmpty()) {
             return "unnamed_file";

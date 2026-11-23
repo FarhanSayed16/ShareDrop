@@ -64,4 +64,27 @@ public final class Config {
     public static long getMaxFileSizeBytes() {
         return getLong("max.file.size.bytes", Constants.MAX_FILE_SIZE);
     }
+
+    public static boolean getBoolean(String key, boolean defaultValue) {
+        String val = PROPS.getProperty(key);
+        if (val == null || val.isBlank()) return defaultValue;
+        return "true".equalsIgnoreCase(val.trim()) || "1".equals(val.trim()) || "yes".equalsIgnoreCase(val.trim());
+    }
+
+    public static int getInternetSessionTimeoutMinutes() {
+        return getInt("internet.session.timeout.minutes", 60);
+    }
+
+    public static String getPublicBaseUrl() {
+        return ShareUrlBuilder.normalizeBaseUrl(getString("public.base.url", ""));
+    }
+
+    public static String getTunnelCommand() {
+        return getString("tunnel.command", "cloudflared");
+    }
+
+    /** When false, Swing hides INTERNET mode (offline-only product profile). */
+    public static boolean isInternetShareEnabled() {
+        return getBoolean("internet.share.enabled", true);
+    }
 }

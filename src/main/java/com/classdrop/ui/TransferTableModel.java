@@ -100,6 +100,27 @@ public final class TransferTableModel extends AbstractTableModel {
         return transfers.size();
     }
 
+    public synchronized String getTransferIdAt(int rowIndex) {
+        if (rowIndex < 0 || rowIndex >= transfers.size()) return null;
+        return transfers.get(rowIndex).id;
+    }
+
+    public synchronized String getDirectionAt(int rowIndex) {
+        if (rowIndex < 0 || rowIndex >= transfers.size()) return null;
+        return transfers.get(rowIndex).direction;
+    }
+
+    public synchronized String getFilenameAt(int rowIndex) {
+        if (rowIndex < 0 || rowIndex >= transfers.size()) return null;
+        return transfers.get(rowIndex).filename;
+    }
+
+    public synchronized void removeRow(int rowIndex) {
+        if (rowIndex < 0 || rowIndex >= transfers.size()) return;
+        transfers.remove(rowIndex);
+        fireTableRowsDeleted(rowIndex, rowIndex);
+    }
+
     public synchronized long getTotalTransferredBytes() {
         long sum = 0;
         for (TransferItem t : transfers) {

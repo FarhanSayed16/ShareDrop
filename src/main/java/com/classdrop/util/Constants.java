@@ -10,8 +10,15 @@ public final class Constants {
     public static final int THREAD_POOL_SIZE = 16;
     public static final int CLEANUP_INTERVAL_SECONDS = 30;
     public static final int SESSION_TIMEOUT_MINUTES = 120;
+    public static final int INTERNET_SESSION_TIMEOUT_MINUTES = 60;
     public static final int BRUTE_FORCE_MAX_ATTEMPTS = 5;
     public static final int BRUTE_FORCE_WINDOW_SECONDS = 60;
     public static final int CLIPBOARD_MAX_BODY_BYTES = 65536; // 64 KB
     public static final int POLLING_INTERVAL_MS = 3000;
+
+    /** Dangerous / unnecessary extensions blocked on upload */
+    public static final String[] BLOCKED_EXTENSIONS = {
+        ".exe", ".bat", ".cmd", ".com", ".msi", ".scr", ".ps1", ".vbs", ".jse",
+        ".wsf", ".wsh", ".dll", ".sys", ".apk", ".dmg"
+    };
 }
