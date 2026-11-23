@@ -70,9 +70,10 @@ public final class ClipboardHandler implements HttpHandler {
             return;
         }
 
-        String snippet = extractJsonField(bodyText, "body");
-        String title = extractJsonField(bodyText, "title");
-        String language = extractJsonField(bodyText, "language");
+        java.util.Map<String, String> parsed = com.classdrop.util.JsonUtil.parseObject(bodyText);
+        String snippet = com.classdrop.util.JsonUtil.getString(parsed, "body");
+        String title = com.classdrop.util.JsonUtil.getString(parsed, "title");
+        String language = com.classdrop.util.JsonUtil.getString(parsed, "language");
 
         if (snippet == null || snippet.trim().isEmpty()) {
             // Fallback: if body is raw plain text

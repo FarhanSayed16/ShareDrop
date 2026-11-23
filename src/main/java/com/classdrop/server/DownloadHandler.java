@@ -16,7 +16,6 @@ import com.sun.net.httpserver.HttpHandler;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.time.LocalDateTime;
 
 public final class DownloadHandler implements HttpHandler {
 
@@ -46,7 +45,6 @@ public final class DownloadHandler implements HttpHandler {
             return;
         }
 
-        // Path format: /download/{id}
         String path = exchange.getRequestURI().getPath();
         String prefix = "/download/";
         if (!path.startsWith(prefix) || path.length() <= prefix.length()) {
@@ -55,7 +53,6 @@ public final class DownloadHandler implements HttpHandler {
         }
 
         String fileId = path.substring(prefix.length());
-        // Clean any trailing slash or query
         if (fileId.contains("/")) {
             fileId = fileId.substring(0, fileId.indexOf('/'));
         }
@@ -66,43 +63,81 @@ public final class DownloadHandler implements HttpHandler {
             String contentType = item.getContentType();
             String cleanName = item.getOriginalName();
 
-            exchange.getResponseHeaders().set("Content-Type", contentType);
+            long start = 0;
+            long end = size - 1;
+            boolean partial = false;
+            String rangeHeader = exchange.getRequestHeaders().getFirst("Range");
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=") && size > 0) {
+                String spec = rangeHeader.substring("bytes=".length()).trim();
+                String[] parts = spec.split("-", 2);
+                try {
+                    if (!parts[0].isEmpty()) {
+                        start = Long.parseLong(parts[0]);
+                    }
+                    if (parts.length > 1 && !parts[1].isEmpty()) {
+                        end = Long.parseLong(parts[1]);
+                    }
+                    if (start < 0 || start >= size || end < start) {
+                        exchange.getResponseHeaders().set("Content-Range", "bytes */" + size);
+                        HandlerSupport.setCorsHeaders(exchange);
+                        exchange.sendResponseHeaders(416, -1);
+                        return;
+                    }
+                    end = Math.min(end, size - 1);
+                    partial = true;
+                } catch (NumberFormatException ignored) {
+                    start = 0;
+                    end = size - 1;
+                    partial = false;
+                }
+            }
+
+            long contentLength = end - start + 1;
+            exchange.getResponseHeaders().set("Content-Type", contentType != null ? contentType : "application/octet-stream");
             exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + cleanName + "\"");
-            exchange.getResponseHeaders().set("Content-Length", String.valueOf(size));
+            exchange.getResponseHeaders().set("Accept-Ranges", "bytes");
+            exchange.getResponseHeaders().set("Content-Length", String.valueOf(contentLength));
+            if (partial) {
+                exchange.getResponseHeaders().set("Content-Range", "bytes " + start + "-" + end + "/" + size);
+            }
             HandlerSupport.setCorsHeaders(exchange);
 
-            exchange.sendResponseHeaders(200, size);
+            int status = partial ? 206 : 200;
+            exchange.sendResponseHeaders(status, contentLength);
 
             if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.close();
                 return;
             }
 
-            // Stream file directly from disk to network in 64 KB chunks
-            try (InputStream in = fileService.openDownloadStream(fileId);
+            try (InputStream in = fileService.openDownloadStream(fileId, start);
                  OutputStream out = exchange.getResponseBody()) {
-
                 byte[] buffer = new byte[Constants.CHUNK_BUFFER_SIZE];
-                int read;
-                while ((read = in.read(buffer)) != -1) {
+                long remaining = contentLength;
+                while (remaining > 0) {
+                    int toRead = (int) Math.min(buffer.length, remaining);
+                    int read = in.read(buffer, 0, toRead);
+                    if (read == -1) break;
                     out.write(buffer, 0, read);
+                    remaining -= read;
                 }
             }
 
-            // Record download completion
-            fileService.recordDownload(device, item);
-            RoomSession session = roomService.current();
-            TransferRecord record = new TransferRecord(
-                session.getId(),
-                device.getId(),
-                item.getKind(),
-                cleanName,
-                fileId,
-                size,
-                contentType,
-                "DOWNLOAD"
-            );
-            notifyTransferCompleted(record);
+            if (!partial || start == 0) {
+                fileService.recordDownload(device, item);
+                RoomSession session = roomService.current();
+                TransferRecord record = new TransferRecord(
+                    session.getId(),
+                    device.getId(),
+                    item.getKind(),
+                    cleanName,
+                    fileId,
+                    size,
+                    contentType,
+                    "DOWNLOAD"
+                );
+                notifyTransferCompleted(record);
+            }
 
         } catch (SessionExpiredException e) {
             HandlerSupport.sendClassDropException(exchange, e);

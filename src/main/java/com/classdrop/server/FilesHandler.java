@@ -5,6 +5,7 @@ import com.classdrop.model.Device;
 import com.classdrop.model.SharedItem;
 import com.classdrop.service.FileService;
 import com.classdrop.service.RoomService;
+import com.classdrop.util.JsonUtil;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
@@ -15,10 +16,12 @@ public final class FilesHandler implements HttpHandler {
 
     private final RoomService roomService;
     private final FileService fileService;
+    private final RemoveFileHandler removeDelegate;
 
     public FilesHandler(RoomService roomService, FileService fileService) {
         this.roomService = roomService;
         this.fileService = fileService;
+        this.removeDelegate = new RemoveFileHandler(roomService, fileService);
     }
 
     @Override
@@ -29,8 +32,17 @@ public final class FilesHandler implements HttpHandler {
             return;
         }
 
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            HandlerSupport.sendError(exchange, 405, "METHOD_NOT_ALLOWED", "Only GET is allowed for /files");
+        String method = exchange.getRequestMethod().toUpperCase();
+        String path = exchange.getRequestURI().getPath();
+
+        // DELETE /files/{id} or POST /files/{id}/remove
+        if ("DELETE".equals(method) || ("POST".equals(method) && path.contains("/remove"))) {
+            removeDelegate.handle(exchange);
+            return;
+        }
+
+        if (!"GET".equals(method)) {
+            HandlerSupport.sendError(exchange, 405, "METHOD_NOT_ALLOWED", "GET or DELETE allowed for /files");
             return;
         }
 
@@ -45,16 +57,17 @@ public final class FilesHandler implements HttpHandler {
             for (int i = 0; i < items.size(); i++) {
                 SharedItem item = items.get(i);
                 if (i > 0) json.append(",");
-                json.append(String.format(
-                    "{\"id\":\"%s\",\"originalName\":\"%s\",\"kind\":\"%s\",\"sizeBytes\":%d,\"contentType\":\"%s\",\"uploaderDeviceId\":\"%s\",\"createdAt\":\"%s\"}",
-                    item.getId(),
-                    escapeJson(item.getOriginalName()),
-                    item.getKind(),
-                    item.getSizeBytes(),
-                    item.getContentType(),
-                    item.getUploaderDeviceId(),
-                    item.getCreatedAt()
-                ));
+                boolean previewable = "IMAGE".equals(item.getKind());
+                json.append("{")
+                    .append("\"id\":").append(JsonUtil.quote(item.getId())).append(",")
+                    .append("\"originalName\":").append(JsonUtil.quote(item.getOriginalName())).append(",")
+                    .append("\"kind\":").append(JsonUtil.quote(item.getKind())).append(",")
+                    .append("\"sizeBytes\":").append(item.getSizeBytes()).append(",")
+                    .append("\"contentType\":").append(JsonUtil.quote(item.getContentType())).append(",")
+                    .append("\"uploaderDeviceId\":").append(JsonUtil.quote(item.getUploaderDeviceId())).append(",")
+                    .append("\"createdAt\":").append(JsonUtil.quote(String.valueOf(item.getCreatedAt()))).append(",")
+                    .append("\"previewable\":").append(previewable)
+                    .append("}");
             }
             json.append("]");
 
@@ -64,10 +77,5 @@ public final class FilesHandler implements HttpHandler {
         } catch (Exception e) {
             HandlerSupport.sendError(exchange, 500, "INTERNAL_ERROR", e.getMessage());
         }
-    }
-
-    private String escapeJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

@@ -1,6 +1,7 @@
 package com.classdrop.server;
 
 import com.classdrop.service.RoomService;
+import com.classdrop.service.StatsService;
 import com.classdrop.util.Constants;
 import com.sun.net.httpserver.HttpServer;
 
@@ -14,6 +15,8 @@ public final class ClassDropServer {
     private final com.classdrop.service.FileService fileService;
     private final com.classdrop.service.ClipboardService clipboardService;
     private final com.classdrop.service.QrService qrService;
+    private final StatsService statsService;
+    private final com.classdrop.service.TunnelService tunnelService;
     private HttpServer server;
     private ExecutorService executor;
     private volatile boolean running = false;
@@ -21,22 +24,36 @@ public final class ClassDropServer {
 
     public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService,
                            com.classdrop.service.ClipboardService clipboardService, com.classdrop.service.QrService qrService) {
+        this(roomService, fileService, clipboardService, qrService, null, null);
+    }
+
+    public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService,
+                           com.classdrop.service.ClipboardService clipboardService, com.classdrop.service.QrService qrService,
+                           StatsService statsService) {
+        this(roomService, fileService, clipboardService, qrService, statsService, null);
+    }
+
+    public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService,
+                           com.classdrop.service.ClipboardService clipboardService, com.classdrop.service.QrService qrService,
+                           StatsService statsService, com.classdrop.service.TunnelService tunnelService) {
         this.roomService = roomService;
         this.fileService = fileService;
         this.clipboardService = clipboardService;
         this.qrService = qrService;
+        this.statsService = statsService;
+        this.tunnelService = tunnelService;
     }
 
     public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService, com.classdrop.service.ClipboardService clipboardService) {
-        this(roomService, fileService, clipboardService, new com.classdrop.service.QrService());
+        this(roomService, fileService, clipboardService, new com.classdrop.service.QrService(), null, null);
     }
 
     public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService) {
-        this(roomService, fileService, new com.classdrop.service.ClipboardService(roomService), new com.classdrop.service.QrService());
+        this(roomService, fileService, new com.classdrop.service.ClipboardService(roomService), new com.classdrop.service.QrService(), null, null);
     }
 
     public ClassDropServer(RoomService roomService) {
-        this(roomService, new com.classdrop.service.FileService(roomService), new com.classdrop.service.ClipboardService(roomService), new com.classdrop.service.QrService());
+        this(roomService, new com.classdrop.service.FileService(roomService), new com.classdrop.service.ClipboardService(roomService), new com.classdrop.service.QrService(), null, null);
     }
 
     public synchronized void start() throws IOException {
@@ -46,12 +63,10 @@ public final class ClassDropServer {
     public synchronized void start(int port) throws IOException {
         if (running) return;
 
-        // Bind 0.0.0.0 so all network interfaces (LAN & Hotspot) can access
         server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
         executor = Executors.newFixedThreadPool(Constants.THREAD_POOL_SIZE);
         server.setExecutor(executor);
 
-        // Core Endpoints
         server.createContext("/health", exchange -> {
             HandlerSupport.sendJson(exchange, 200, "{\"ok\":true}");
         });
@@ -67,8 +82,16 @@ public final class ClassDropServer {
         server.createContext("/upload", new UploadHandler(roomService, fileService));
         server.createContext("/files", new FilesHandler(roomService, fileService));
         server.createContext("/download", new DownloadHandler(roomService, fileService));
+        server.createContext("/download-all.zip", new ZipDownloadHandler(roomService, fileService));
+        server.createContext("/preview", new PreviewHandler(roomService, fileService));
         server.createContext("/clipboard", new ClipboardHandler(roomService, clipboardService));
-        server.createContext("/qr", new QrHandler(roomService, qrService, port));
+        server.createContext("/qr", new QrHandler(roomService, qrService, port, tunnelService));
+        server.createContext("/session-info", new SessionInfoHandler(roomService));
+        server.createContext("/me", new MeHandler(roomService));
+        server.createContext("/stats", new StatsHandler(roomService, statsService));
+        server.createContext("/kick", new KickHandler(roomService));
+        server.createContext("/events", new EventsHandler(roomService));
+        server.createContext("/remove-file", new RemoveFileHandler(roomService, fileService));
 
         server.start();
         this.boundPort = port;
