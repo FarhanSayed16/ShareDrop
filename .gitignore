@@ -1,0 +1,12 @@
+target/
+data/
+*.class
+*.ser
+*.log
+.idea/
+*.iml
+.vscode/
+bin/
+application-local.properties
+dependency-reduced-pom.xml
+temp/

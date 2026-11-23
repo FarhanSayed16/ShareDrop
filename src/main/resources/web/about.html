@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About — ClassDrop</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">📦</span>
+                <h1>About ClassDrop</h1>
+            </div>
+            <p class="tagline">In the room, in the browser, off the cloud.</p>
+        </header>
+
+        <div class="card">
+            <h2>The Classroom Sharing Problem</h2>
+            <p style="margin-bottom: 15px; color: var(--text-muted); line-height: 1.5;">
+                In a lecture or practical lab, sharing files should be as effortless as passing a physical note. Yet students often resort to uploading multi-gigabyte assignment zip files or photos to external cloud storage (Google Drive, WeTransfer) only for classmates sitting three feet away to download them back across an overloaded campus internet connection.
+            </p>
+            <p style="margin-bottom: 15px; color: var(--text-muted); line-height: 1.5;">
+                <strong>ClassDrop</strong> solves this by turning one student's laptop into a temporary classroom drop box over local Wi-Fi or Windows Mobile Hotspot. No apps to install, no cloud relays, zero external data consumption.
+            </p>
+
+            <h3 style="margin: 25px 0 10px; color: #5eead4;">Cloud Lockers vs. ClassDrop</h3>
+            <div style="background-color: var(--bg-input); padding: 15px; border-radius: 8px; font-size: 0.9rem; line-height: 1.6; margin-bottom: 20px;">
+                <p><strong>Cloud Services (Google Drive / WeTransfer):</strong></p>
+                <p style="color: var(--text-muted); margin-bottom: 10px;">Upload to public cloud &rarr; Stored on third-party servers &rarr; Classmates download from cloud across internet.</p>
+                
+                <p><strong>ClassDrop (In-Room Server Hub):</strong></p>
+                <p style="color: #5eead4;">Classmate uploads &rarr; Host laptop on port 8080 &rarr; Classmates stream directly over LAN/Hotspot &rarr; Host closes app, files are gone.</p>
+            </div>
+
+            <h3 style="margin: 20px 0 10px; color: #5eead4;">Architectural Comparison</h3>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border-color); color: var(--text-color);">
+                            <th style="padding: 10px;">Capability</th>
+                            <th style="padding: 10px;">Cloud (Drive / WhatsApp)</th>
+                            <th style="padding: 10px;">WebRTC (ToffeeShare)</th>
+                            <th style="padding: 10px; color: #5eead4;">ClassDrop (Local Hub)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 8px 10px; font-weight: bold;">Offline Classroom Use</td>
+                            <td style="padding: 8px 10px; color: #ef4444;">No (Requires Internet)</td>
+                            <td style="padding: 8px 10px; color: #ef4444;">No (Needs STUN/Signaling)</td>
+                            <td style="padding: 8px 10px; color: #22c55e; font-weight: bold;">Yes (100% Offline)</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 8px 10px; font-weight: bold;">Campus Wi-Fi Isolation</td>
+                            <td style="padding: 8px 10px; color: #ef4444;">Cellular data fallback</td>
+                            <td style="padding: 8px 10px; color: #ef4444;">Blocked by symmetric NAT</td>
+                            <td style="padding: 8px 10px; color: #22c55e; font-weight: bold;">Bypasses via Hotspot (192.168.137.1)</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 8px 10px; font-weight: bold;">Client App Install</td>
+                            <td style="padding: 8px 10px; color: var(--text-muted);">App + Account Login</td>
+                            <td style="padding: 8px 10px; color: #22c55e;">Browser (No install)</td>
+                            <td style="padding: 8px 10px; color: #22c55e; font-weight: bold;">Zero-Install Web Client</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 8px 10px; font-weight: bold;">Data Privacy</td>
+                            <td style="padding: 8px 10px; color: #ef4444;">Stored on 3rd-party servers</td>
+                            <td style="padding: 8px 10px; color: #22c55e;">Ephemeral P2P</td>
+                            <td style="padding: 8px 10px; color: #22c55e; font-weight: bold;">In-Room Host Only; purged on exit</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px 10px; font-weight: bold;">Java Syllabus Fit</td>
+                            <td style="padding: 8px 10px; color: var(--text-muted);">None</td>
+                            <td style="padding: 8px 10px; color: var(--text-muted);">JavaScript / Node</td>
+                            <td style="padding: 8px 10px; color: #22c55e; font-weight: bold;">Java 17, Swing, Threads, JDBC</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="text-align: center;">
+            <a href="/" class="btn btn-secondary" style="display: inline-block; width: auto;">&larr; Back to ClassDrop</a>
+        </div>
+    </div>
+</body>
+</html>

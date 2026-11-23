@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClassDrop — Classroom Drop Box</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">📦</span>
+                <h1>ClassDrop</h1>
+            </div>
+            <p class="tagline">In the room, in the browser, off the cloud.</p>
+        </header>
+
+        <!-- Keep-Open Notice Banner -->
+        <div class="banner">
+            ⚠️ <strong>Host Notice:</strong> Files stay available only while the host laptop keeps ClassDrop running.
+        </div>
+
+        <!-- Section 1: Join Form -->
+        <div id="join-section" class="card">
+            <h2>Join Classroom Room</h2>
+            <p class="hint">Enter the 6-digit code shown on the host laptop screen or scanned from the QR code.</p>
+            <form id="join-form">
+                <div class="form-group">
+                    <label for="room-code">6-Digit Room Code</label>
+                    <input type="text" id="room-code" maxlength="6" placeholder="e.g. 482917" autocomplete="off" required>
+                </div>
+                <div class="form-group">
+                    <label for="display-name">Your Name</label>
+                    <input type="text" id="display-name" placeholder="e.g. Farhan" required>
+                </div>
+                <button type="submit" id="btn-join" class="btn btn-primary">Join Room</button>
+            </form>
+            <div id="join-error" class="error-msg" style="display:none;"></div>
+        </div>
+
+        <!-- Section 2: Connected Room Dashboard (Hidden before join) -->
+        <div id="room-section" class="card" style="display:none;">
+            <div class="room-status-bar">
+                <div>
+                    <span class="status-indicator"></span>
+                    <span id="connected-user">Connected</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button id="btn-toggle-qr" type="button" class="btn btn-secondary btn-small">📱 QR</button>
+                    <span id="session-code-badge" class="badge">Code: ------</span>
+                </div>
+            </div>
+
+            <!-- QR Display for Peers (Toggleable) -->
+            <div id="qr-container" style="display:none; text-align:center; padding:15px; margin-bottom:15px; background:rgba(0,0,0,0.25); border-radius:8px;">
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:8px;">Have a classmate scan this to join:</p>
+                <img id="qr-img" src="/qr" alt="Room QR Code" style="width:180px; height:180px; border-radius:8px; background:white; padding:6px;">
+            </div>
+
+            <!-- Upload Drop Zone -->
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-content">
+                    <span class="upload-icon">📤</span>
+                    <p><strong>Drag & drop files here</strong></p>
+                    <p class="sub-hint">or click to browse multiple files (max 100 MB each)</p>
+                    <input type="file" id="file-input" multiple style="display:none;">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('file-input').click()">Browse Files</button>
+                </div>
+            </div>
+
+            <!-- Upload Progress -->
+            <div id="upload-progress-list" class="progress-list"></div>
+
+            <!-- Files in Room -->
+            <div class="section-title">
+                <h3>Files Shared in This Room</h3>
+                <button id="btn-refresh-files" class="btn btn-small">↻ Refresh</button>
+            </div>
+            <div id="file-list" class="file-list">
+                <p class="empty-hint">No files shared yet. Be the first to drop one!</p>
+            </div>
+
+            <!-- Shared Clipboard -->
+            <div class="section-title">
+                <h3>Shared Classroom Clipboard</h3>
+            </div>
+            <div class="clipboard-box">
+                <textarea id="clipboard-input" rows="3" placeholder="Share code snippets, formulas, or assignment links with everyone..."></textarea>
+                <div class="clipboard-actions">
+                    <select id="clipboard-lang" class="input-small">
+                        <option value="text">Plain Text</option>
+                        <option value="java">Java</option>
+                        <option value="python">Python</option>
+                        <option value="sql">SQL</option>
+                    </select>
+                    <button id="btn-post-clipboard" class="btn btn-primary btn-small">Post Snippet</button>
+                </div>
+            </div>
+            <div id="clipboard-list" class="clipboard-list"></div>
+        </div>
+
+        <footer class="footer">
+            <a href="/about">About ClassDrop</a> &bull;
+            <a href="/privacy">Privacy & Cloud vs ClassDrop</a> &bull;
+            <span>KJSIM MCA</span>
+        </footer>
+    </div>
+
+    <script src="/static/nosleep.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

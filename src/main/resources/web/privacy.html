@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy — ClassDrop</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">🔒</span>
+                <h1>ClassDrop Privacy</h1>
+            </div>
+            <p class="tagline">Local data boundaries and honest architectural claims.</p>
+        </header>
+
+        <div class="card">
+            <h2>Data Policy & Disclosures</h2>
+            <ul style="color: var(--text-muted); line-height: 1.7; padding-left: 20px; margin-top: 15px;">
+                <li><strong>No Cloud Storage:</strong> Files never leave your local room network in LAN or Hotspot mode.</li>
+                <li><strong>Host Laptop Acts as Server:</strong> All uploads are temporarily staged on the host laptop's local disk (`data/` directory).</li>
+                <li><strong>Session Expiry:</strong> When the host terminates the session or closes the ClassDrop application, all staged files are deleted and access tokens are invalidated.</li>
+                <li><strong>Academic Audit History:</strong> For academic grading purposes, local MySQL records transfer audit metadata (filenames, sizes, device names, timestamps). Raw file contents are purged.</li>
+                <li><strong>Transport Security Notice:</strong> Traffic over local Hotspot/LAN uses plain HTTP. Anyone connected to the same hotspot who has the 6-digit room code can access shared items.</li>
+            </ul>
+        </div>
+
+        <div style="text-align: center;">
+            <a href="/" class="btn btn-secondary" style="display: inline-block; width: auto;">&larr; Back to ClassDrop</a>
+        </div>
+    </div>
+</body>
+</html>
