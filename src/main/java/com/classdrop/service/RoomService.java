@@ -1,5 +1,6 @@
 package com.classdrop.service;
 
+import com.classdrop.exception.InvalidPassphraseException;
 import com.classdrop.exception.InvalidRoomCodeException;
 import com.classdrop.exception.SessionExpiredException;
 import com.classdrop.model.Device;
@@ -41,6 +42,10 @@ public final class RoomService {
     }
 
     public synchronized RoomSession createSession(NetworkMode mode, String hostIp) {
+        return createSession(mode, hostIp, null);
+    }
+
+    public synchronized RoomSession createSession(NetworkMode mode, String hostIp, String passphrase) {
         if (currentSession != null && currentSession.isActive()) {
             currentSession.end();
             if (sessionRepository != null) {
@@ -51,6 +56,12 @@ public final class RoomService {
 
         String code = codeGenerator.generate();
         currentSession = new RoomSession(code, mode, hostIp);
+        if (passphrase != null && !passphrase.isBlank()) {
+            currentSession.setPassphrase(passphrase);
+        } else if (mode == NetworkMode.RELAY) {
+            // Internet Share must never publish without a passphrase set first
+            throw new IllegalArgumentException("Internet Share (RELAY) requires a room passphrase");
+        }
         failedAttempts.clear();
         blockedUntil.clear();
 
@@ -63,8 +74,13 @@ public final class RoomService {
     }
 
     public synchronized Device join(String roomCode, String displayName, String ip)
-            throws InvalidRoomCodeException, SessionExpiredException {
-        
+            throws InvalidRoomCodeException, SessionExpiredException, InvalidPassphraseException {
+        return join(roomCode, displayName, ip, null);
+    }
+
+    public synchronized Device join(String roomCode, String displayName, String ip, String passphrase)
+            throws InvalidRoomCodeException, SessionExpiredException, InvalidPassphraseException {
+
         if (currentSession == null || !currentSession.isActive()) {
             throw new SessionExpiredException("No active ClassDrop session. Please ask the host to start one.");
         }
@@ -80,14 +96,19 @@ public final class RoomService {
 
         // Validate code
         if (roomCode == null || !currentSession.getRoomCode().equals(roomCode.trim())) {
-            if (ip != null) {
-                AtomicInteger attempts = failedAttempts.computeIfAbsent(ip, k -> new AtomicInteger(0));
-                if (attempts.incrementAndGet() >= Constants.BRUTE_FORCE_MAX_ATTEMPTS) {
-                    blockedUntil.put(ip, System.currentTimeMillis() + (Constants.BRUTE_FORCE_WINDOW_SECONDS * 1000L));
-                    attempts.set(0);
-                }
-            }
+            registerFailedAttempt(ip);
             throw new InvalidRoomCodeException("Invalid 6-digit room code.");
+        }
+
+        // Internet Share / any room with passphrase set
+        if (currentSession.requiresPassphrase() || currentSession.isInternetShare()) {
+            if (!currentSession.requiresPassphrase()) {
+                throw new InvalidPassphraseException("Internet Share requires a room passphrase set by the host.");
+            }
+            if (!currentSession.matchesPassphrase(passphrase)) {
+                registerFailedAttempt(ip);
+                throw new InvalidPassphraseException("Incorrect room passphrase.");
+            }
         }
 
         // Reset failed counter on success
@@ -108,6 +129,21 @@ public final class RoomService {
         return device;
     }
 
+    private void registerFailedAttempt(String ip) {
+        if (ip == null) return;
+        AtomicInteger attempts = failedAttempts.computeIfAbsent(ip, k -> new AtomicInteger(0));
+        if (attempts.incrementAndGet() >= Constants.BRUTE_FORCE_MAX_ATTEMPTS) {
+            blockedUntil.put(ip, System.currentTimeMillis() + (Constants.BRUTE_FORCE_WINDOW_SECONDS * 1000L));
+            attempts.set(0);
+        }
+    }
+
+    public synchronized void setSessionPassphrase(String passphrase) {
+        if (currentSession != null && currentSession.isActive()) {
+            currentSession.setPassphrase(passphrase);
+        }
+    }
+
     public Device validateToken(String token) throws SessionExpiredException {
         if (currentSession == null || !currentSession.isActive()) {
             throw new SessionExpiredException("Session is no longer active.");
@@ -117,6 +153,25 @@ public final class RoomService {
             deviceRepository.updateLastSeen(d.getId(), d.getLastSeen());
         }
         return d;
+    }
+
+    public boolean isHostToken(String token) throws SessionExpiredException {
+        RoomSession session = current();
+        String hostToken = session.getHostToken();
+        return hostToken != null && !hostToken.isBlank() && hostToken.equals(token);
+    }
+
+    public synchronized Device kickDevice(String deviceId) throws SessionExpiredException {
+        RoomSession session = current();
+        Device device = session.findDeviceById(deviceId);
+        if (device == null) {
+            return null;
+        }
+        session.removeDevice(deviceId);
+        for (SessionListener l : listeners) {
+            try { l.onDeviceLeft(device); } catch (Exception ignored) {}
+        }
+        return device;
     }
 
     public synchronized void endSession() {

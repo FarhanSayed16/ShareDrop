@@ -44,6 +44,11 @@ public final class DeviceTableModel extends AbstractTableModel {
         return devices.size();
     }
 
+    public synchronized Device getDeviceAt(int rowIndex) {
+        if (rowIndex < 0 || rowIndex >= devices.size()) return null;
+        return devices.get(rowIndex);
+    }
+
     @Override
     public int getRowCount() {
         return devices.size();

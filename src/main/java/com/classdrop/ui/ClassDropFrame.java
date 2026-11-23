@@ -2,17 +2,23 @@ package com.classdrop.ui;
 
 import com.classdrop.model.*;
 import com.classdrop.service.*;
-import com.classdrop.util.Constants;
 import com.classdrop.util.ShareLinks;
+import com.classdrop.util.ShareUrlBuilder;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.net.URI;
+import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class ClassDropFrame extends JFrame implements SessionListener {
 
@@ -24,40 +30,60 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
     private final QrService qrService;
     private final NetworkInfoService networkInfo;
     private final int port;
-
-    // UI Components
-    private JLabel lblModeBadge;
     private final StatsService statsService;
     private final com.classdrop.db.TransferRepository transferRepository;
-    private SearchPanel searchPanel;
+    private final TunnelService tunnelService;
 
+    private SearchPanel searchPanel;
+    private JLabel lblModeBadge;
     private JLabel lblRoomCode;
     private JLabel lblHostIp;
+    private JLabel lblBrandHint;
     private JTextField txtShareUrl;
     private JLabel lblQrImage;
     private JLabel lblActiveUsers;
     private JLabel lblSessionStats;
+    private JLabel lblHostToken;
+    private JLabel transfersEmptyHint;
+    private JLabel devicesEmptyHint;
+    private JLabel lblInternetBanner;
+    private JLabel lblOfflineReady;
+    private JPasswordField txtPassphrase;
 
     private DeviceTableModel deviceTableModel;
     private TransferTableModel transferTableModel;
-
     private DefaultListModel<String> clipboardListModel;
     private JTextArea txtLogArea;
 
     private JButton btnStartSession;
     private JButton btnEndSession;
     private JComboBox<NetworkMode> cmbNetworkMode;
+    private JTable tblDevices;
+    private JTable tblTransfers;
+    private DropZonePanel dropZone;
+    /** Prevents combo setSelectedItem from recursively creating new sessions. */
+    private boolean syncingUi = false;
+    private JPanel transfersCards;
+    private JPanel devicesCards;
 
     public ClassDropFrame(RoomService roomService, FileService fileService,
                           ClipboardService clipboardService, QrService qrService,
                           NetworkInfoService networkInfo, int port) {
-        this(roomService, fileService, clipboardService, qrService, networkInfo, port, null, null);
+        this(roomService, fileService, clipboardService, qrService, networkInfo, port, null, null, null);
     }
 
     public ClassDropFrame(RoomService roomService, FileService fileService,
                           ClipboardService clipboardService, QrService qrService,
                           NetworkInfoService networkInfo, int port,
                           StatsService statsService, com.classdrop.db.TransferRepository transferRepository) {
+        this(roomService, fileService, clipboardService, qrService, networkInfo, port, statsService, transferRepository, null);
+    }
+
+    public ClassDropFrame(RoomService roomService, FileService fileService,
+                          ClipboardService clipboardService, QrService qrService,
+                          NetworkInfoService networkInfo, int port,
+                          StatsService statsService, com.classdrop.db.TransferRepository transferRepository,
+                          TunnelService tunnelService) {
         this.roomService = roomService;
         this.fileService = fileService;
         this.clipboardService = clipboardService;
@@ -66,20 +92,20 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         this.port = port;
         this.statsService = statsService;
         this.transferRepository = transferRepository;
+        this.tunnelService = tunnelService != null ? tunnelService : new TunnelService(port);
 
         roomService.addListener(this);
-
         initUi();
         refreshDisplayFromSession();
     }
 
     private void initUi() {
-        setTitle("ClassDrop — Host Classroom Hub (KJSIM MCA)");
-        setSize(940, 700);
-        setMinimumSize(new Dimension(840, 600));
+        setTitle("ClassDrop - Host Classroom Hub");
+        setSize(1020, 760);
+        setMinimumSize(new Dimension(900, 660));
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-
+        getRootPane().putClientProperty("JRootPane.titleBarBackground", UiTheme.BG);
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
@@ -87,253 +113,438 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
             }
         });
 
-        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
-        mainPanel.setBorder(new EmptyBorder(12, 12, 12, 12));
-        mainPanel.setBackground(new Color(15, 23, 42)); // #0f172a
-
-        // Top Header
+        JPanel mainPanel = new JPanel(new BorderLayout(14, 14));
+        mainPanel.setBorder(new EmptyBorder(16, 16, 16, 16));
+        mainPanel.setBackground(UiTheme.BG);
         mainPanel.add(buildHeaderPanel(), BorderLayout.NORTH);
-
-        // Center Tabs
         mainPanel.add(buildCenterTabs(), BorderLayout.CENTER);
-
-        // Bottom Status Bar
         mainPanel.add(buildStatusBar(), BorderLayout.SOUTH);
-
         setContentPane(mainPanel);
     }
 
     private JPanel buildHeaderPanel() {
-        JPanel header = new JPanel(new BorderLayout(10, 8));
-        header.setBackground(new Color(30, 41, 59)); // #1e293b
-        header.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(71, 85, 105), 1),
-            new EmptyBorder(12, 16, 12, 16)
-        ));
+        JPanel header = new JPanel(new BorderLayout(0, 12));
+        header.setOpaque(false);
 
-        // Keep-Open Warning Banner
-        JLabel banner = new JLabel("⚠️  Keep ClassDrop running on this laptop — closing stops classroom sharing.", SwingConstants.CENTER);
+        JPanel banners = new JPanel();
+        banners.setOpaque(false);
+        banners.setLayout(new BoxLayout(banners, BoxLayout.Y_AXIS));
+
+        JLabel banner = new JLabel("  Keep this window open — closing stops classroom sharing", SwingConstants.LEFT);
         banner.setOpaque(true);
-        banner.setBackground(new Color(13, 148, 136, 40));
-        banner.setForeground(new Color(94, 234, 212));
-        banner.setBorder(new EmptyBorder(6, 10, 6, 10));
-        banner.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        header.add(banner, BorderLayout.NORTH);
+        banner.setBackground(new Color(15, 158, 145, 28));
+        banner.setForeground(UiTheme.ACCENT_SOFT);
+        banner.setBorder(new EmptyBorder(10, 14, 10, 14));
+        banner.setFont(UiTheme.UI_SMALL_BOLD);
+        banner.setAlignmentX(Component.LEFT_ALIGNMENT);
+        banner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        banners.add(banner);
 
-        // Details Panel
-        JPanel detailsPanel = new JPanel(new GridBagLayout());
-        detailsPanel.setOpaque(false);
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(4, 6, 4, 6);
+        lblInternetBanner = new JLabel("  Offline mode — no internet required. Students must join your hotspot/LAN.", SwingConstants.LEFT);
+        lblInternetBanner.setOpaque(true);
+        lblInternetBanner.setBackground(new Color(15, 158, 145, 40));
+        lblInternetBanner.setForeground(UiTheme.ACCENT_SOFT);
+        lblInternetBanner.setBorder(new EmptyBorder(8, 14, 8, 14));
+        lblInternetBanner.setFont(UiTheme.UI_SMALL_BOLD);
+        lblInternetBanner.setAlignmentX(Component.LEFT_ALIGNMENT);
+        lblInternetBanner.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        banners.add(Box.createVerticalStrut(6));
+        banners.add(lblInternetBanner);
 
-        // Row 0: Mode and IP
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        JLabel lblModeTitle = new JLabel("Mode:");
-        lblModeTitle.setForeground(new Color(148, 163, 184));
-        detailsPanel.add(lblModeTitle, gbc);
+        lblOfflineReady = new JLabel("  Offline readiness: checking…", SwingConstants.LEFT);
+        lblOfflineReady.setOpaque(true);
+        lblOfflineReady.setBackground(new Color(51, 65, 85));
+        lblOfflineReady.setForeground(UiTheme.MUTED);
+        lblOfflineReady.setBorder(new EmptyBorder(8, 14, 8, 14));
+        lblOfflineReady.setFont(UiTheme.UI_SMALL);
+        lblOfflineReady.setAlignmentX(Component.LEFT_ALIGNMENT);
+        lblOfflineReady.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        banners.add(Box.createVerticalStrut(6));
+        banners.add(lblOfflineReady);
+        header.add(banners, BorderLayout.NORTH);
 
-        gbc.gridx = 1; gbc.weightx = 0.3;
-        JPanel modeBox = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        modeBox.setOpaque(false);
-        lblModeBadge = new JLabel(" HOTSPOT ");
+        JPanel hero = cardPanel();
+        hero.setLayout(new BorderLayout(20, 0));
+        hero.setBorder(new EmptyBorder(18, 20, 18, 20));
+
+        JPanel left = new JPanel();
+        left.setOpaque(false);
+        left.setLayout(new BoxLayout(left, BoxLayout.Y_AXIS));
+
+        JPanel brandRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        brandRow.setOpaque(false);
+        brandRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel brand = new JLabel("ClassDrop");
+        brand.setForeground(UiTheme.TEXT);
+        brand.setFont(UiTheme.BRAND);
+        brandRow.add(brand);
+        lblModeBadge = new JLabel(" LAN ");
         lblModeBadge.setOpaque(true);
-        lblModeBadge.setBackground(new Color(13, 148, 136));
+        lblModeBadge.setBackground(UiTheme.ACCENT);
         lblModeBadge.setForeground(Color.WHITE);
-        lblModeBadge.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        modeBox.add(lblModeBadge);
+        lblModeBadge.setFont(UiTheme.UI_SMALL_BOLD);
+        lblModeBadge.setBorder(new EmptyBorder(3, 8, 3, 8));
+        brandRow.add(lblModeBadge);
+        left.add(brandRow);
 
-        cmbNetworkMode = new JComboBox<>(NetworkMode.values());
-        cmbNetworkMode.setSelectedItem(NetworkMode.HOTSPOT);
-        cmbNetworkMode.addActionListener(e -> switchNetworkMode((NetworkMode) cmbNetworkMode.getSelectedItem()));
-        modeBox.add(cmbNetworkMode);
-        detailsPanel.add(modeBox, gbc);
+        lblBrandHint = new JLabel("Students join in the browser — zero install");
+        lblBrandHint.setForeground(UiTheme.MUTED);
+        lblBrandHint.setFont(UiTheme.UI_SMALL);
+        lblBrandHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        left.add(lblBrandHint);
+        left.add(Box.createVerticalStrut(16));
 
-        gbc.gridx = 2; gbc.weightx = 0;
-        JLabel lblIpTitle = new JLabel("Host IP:");
-        lblIpTitle.setForeground(new Color(148, 163, 184));
-        detailsPanel.add(lblIpTitle, gbc);
+        JLabel codeLbl = new JLabel("ROOM CODE");
+        codeLbl.setForeground(UiTheme.MUTED);
+        codeLbl.setFont(UiTheme.UI_SMALL_BOLD);
+        codeLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        left.add(codeLbl);
 
-        gbc.gridx = 3; gbc.weightx = 0.7;
-        lblHostIp = new JLabel("127.0.0.1");
-        lblHostIp.setForeground(Color.WHITE);
-        lblHostIp.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        detailsPanel.add(lblHostIp, gbc);
-
-        // Row 1: 6-Digit Room Code (Large Monospace)
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        JLabel lblCodeTitle = new JLabel("Room Code:");
-        lblCodeTitle.setForeground(new Color(148, 163, 184));
-        detailsPanel.add(lblCodeTitle, gbc);
-
-        gbc.gridx = 1; gbc.gridwidth = 3; gbc.weightx = 1.0;
         lblRoomCode = new JLabel("------");
-        lblRoomCode.setForeground(new Color(94, 234, 212)); // Teal accent
-        lblRoomCode.setFont(new Font("Consolas", Font.BOLD, 26));
-        detailsPanel.add(lblRoomCode, gbc);
+        lblRoomCode.setForeground(UiTheme.ACCENT_SOFT);
+        lblRoomCode.setFont(UiTheme.CODE);
+        lblRoomCode.setAlignmentX(Component.LEFT_ALIGNMENT);
+        left.add(lblRoomCode);
+        left.add(Box.createVerticalStrut(14));
 
-        // Row 2: Share URL and Action Buttons
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
-        JLabel lblUrlTitle = new JLabel("Share URL:");
-        lblUrlTitle.setForeground(new Color(148, 163, 184));
-        detailsPanel.add(lblUrlTitle, gbc);
+        JPanel meta = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        meta.setOpaque(false);
+        meta.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel modeLbl = new JLabel("Mode");
+        modeLbl.setForeground(UiTheme.MUTED);
+        modeLbl.setFont(UiTheme.UI_SMALL_BOLD);
+        meta.add(modeLbl);
+        java.util.List<NetworkMode> modes = new ArrayList<>();
+        modes.add(NetworkMode.HOTSPOT);
+        modes.add(NetworkMode.LAN);
+        if (com.classdrop.util.Config.isInternetShareEnabled()) {
+            modes.add(NetworkMode.RELAY);
+        }
+        cmbNetworkMode = new JComboBox<>(modes.toArray(new NetworkMode[0]));
+        cmbNetworkMode.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof NetworkMode m) {
+                    setText(ShareUrlBuilder.displayModeName(m));
+                }
+                return c;
+            }
+        });
+        NetworkMode preferred = networkInfo.isHotspotAvailable() ? NetworkMode.HOTSPOT : NetworkMode.LAN;
+        cmbNetworkMode.setSelectedItem(preferred);
+        cmbNetworkMode.addActionListener(e -> {
+            if (syncingUi) return;
+            switchNetworkMode((NetworkMode) cmbNetworkMode.getSelectedItem());
+        });
+        meta.add(cmbNetworkMode);
+        JLabel ipTitle = new JLabel("  Host IP");
+        ipTitle.setForeground(UiTheme.MUTED);
+        ipTitle.setFont(UiTheme.UI_SMALL_BOLD);
+        meta.add(ipTitle);
+        lblHostIp = new JLabel("127.0.0.1");
+        lblHostIp.setForeground(UiTheme.TEXT);
+        lblHostIp.setFont(UiTheme.UI_BOLD);
+        meta.add(lblHostIp);
+        JLabel passLbl = new JLabel("  Passphrase");
+        passLbl.setForeground(UiTheme.MUTED);
+        passLbl.setFont(UiTheme.UI_SMALL_BOLD);
+        meta.add(passLbl);
+        txtPassphrase = new JPasswordField(10);
+        txtPassphrase.setToolTipText("Required for INTERNET mode — students must enter this to join");
+        String defaultPass = com.classdrop.util.Config.getString("room.passphrase", "");
+        if (defaultPass != null && !defaultPass.isBlank()) {
+            txtPassphrase.setText(defaultPass);
+        }
+        txtPassphrase.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                RoomSession live = roomService.getCurrentSessionOrNull();
+                if (live != null && live.isActive()) {
+                    applyPassphraseFromField(live);
+                }
+            }
+        });
+        meta.add(txtPassphrase);
+        left.add(meta);
+        left.add(Box.createVerticalStrut(12));
 
-        gbc.gridx = 1; gbc.gridwidth = 3; gbc.weightx = 1.0;
-        JPanel urlActionPanel = new JPanel(new BorderLayout(6, 0));
-        urlActionPanel.setOpaque(false);
-
+        JPanel urlRow = new JPanel(new BorderLayout(8, 0));
+        urlRow.setOpaque(false);
+        urlRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        urlRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
         txtShareUrl = new JTextField("http://localhost:8080/r/------");
         txtShareUrl.setEditable(false);
-        txtShareUrl.setBackground(new Color(51, 65, 85));
-        txtShareUrl.setForeground(Color.WHITE);
-        txtShareUrl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        urlActionPanel.add(txtShareUrl, BorderLayout.CENTER);
+        txtShareUrl.setFont(UiTheme.UI_SMALL);
+        urlRow.add(txtShareUrl, BorderLayout.CENTER);
 
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        btnRow.setOpaque(false);
-
-        JButton btnCopy = new JButton("Copy Link");
-        styleButton(btnCopy, new Color(51, 65, 85));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        actions.setOpaque(false);
+        JButton btnCopy = pillButton("Copy", UiTheme.SURFACE_ALT);
         btnCopy.addActionListener(e -> copyShareUrl());
-        btnRow.add(btnCopy);
-
-        JButton btnWhatsapp = new JButton("WhatsApp");
-        styleButton(btnWhatsapp, new Color(34, 197, 94));
+        actions.add(btnCopy);
+        JButton btnWhatsapp = pillButton("WhatsApp", UiTheme.OK);
         btnWhatsapp.addActionListener(e -> openWhatsappLink());
-        btnRow.add(btnWhatsapp);
-
-        JButton btnEmail = new JButton("Email");
-        styleButton(btnEmail, new Color(59, 130, 246));
+        actions.add(btnWhatsapp);
+        JButton btnEmail = pillButton("Email", UiTheme.INFO);
         btnEmail.addActionListener(e -> openEmailLink());
-        btnRow.add(btnEmail);
+        actions.add(btnEmail);
+        urlRow.add(actions, BorderLayout.EAST);
+        left.add(urlRow);
 
-        urlActionPanel.add(btnRow, BorderLayout.EAST);
-        detailsPanel.add(urlActionPanel, gbc);
+        hero.add(left, BorderLayout.CENTER);
 
-        header.add(detailsPanel, BorderLayout.CENTER);
-
-        // QR Code Thumbnail (Right side)
-        JPanel qrPanel = new JPanel(new BorderLayout());
-        qrPanel.setOpaque(false);
-        qrPanel.setBorder(new EmptyBorder(0, 10, 0, 0));
+        JPanel qrCard = new JPanel(new BorderLayout(0, 8));
+        qrCard.setOpaque(true);
+        qrCard.setBackground(Color.WHITE);
+        qrCard.setBorder(new EmptyBorder(10, 10, 10, 10));
         lblQrImage = new JLabel();
-        lblQrImage.setPreferredSize(new Dimension(100, 100));
+        lblQrImage.setPreferredSize(new Dimension(132, 132));
         lblQrImage.setHorizontalAlignment(SwingConstants.CENTER);
-        lblQrImage.setToolTipText("Scan to join room immediately");
-        qrPanel.add(lblQrImage, BorderLayout.CENTER);
+        lblQrImage.setToolTipText("Students scan this QR to join");
+        qrCard.add(lblQrImage, BorderLayout.CENTER);
+        JLabel qrHint = new JLabel("Scan to join", SwingConstants.CENTER);
+        qrHint.setForeground(new Color(71, 85, 105));
+        qrHint.setFont(UiTheme.UI_SMALL_BOLD);
+        qrCard.add(qrHint, BorderLayout.SOUTH);
 
-        header.add(qrPanel, BorderLayout.EAST);
+        JPanel qrWrap = new JPanel(new BorderLayout());
+        qrWrap.setOpaque(false);
+        qrWrap.add(qrCard, BorderLayout.NORTH);
+        hero.add(qrWrap, BorderLayout.EAST);
 
+        header.add(hero, BorderLayout.CENTER);
         return header;
+    }
+
+    private JPanel cardPanel() {
+        JPanel p = new JPanel();
+        p.setBackground(UiTheme.SURFACE);
+        p.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UiTheme.BORDER, 1),
+            new EmptyBorder(0, 0, 0, 0)
+        ));
+        return p;
     }
 
     private JTabbedPane buildCenterTabs() {
         JTabbedPane tabs = new JTabbedPane();
-        tabs.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        tabs.setFont(UiTheme.UI_BOLD);
+        tabs.setBackground(UiTheme.BG);
+        tabs.setForeground(UiTheme.TEXT);
 
-        // Tab 1: Live Transfers
+        // Transfers tab with drop zone + empty state
         transferTableModel = new TransferTableModel();
-        JTable tblTransfers = new JTable(transferTableModel);
+        tblTransfers = new JTable(transferTableModel);
         styleTable(tblTransfers);
-        tabs.addTab("Live Transfers", new JScrollPane(tblTransfers));
+        JScrollPane transferScroll = wrapTable(tblTransfers);
+        transfersEmptyHint = emptyHintLabel(
+            "No files in this room yet",
+            "Drop files on the zone above, or click Browse Files."
+        );
+        transfersCards = cardTable(transferScroll, transfersEmptyHint);
+        JPanel transferStack = transfersCards;
 
-        // Tab 2: Connected Devices
+        dropZone = new DropZonePanel();
+        dropZone.setOnFilesDropped(this::shareFiles);
+        dropZone.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                shareLocalFile();
+            }
+        });
+
+        JPanel transferActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        transferActions.setOpaque(false);
+        JButton btnBrowse = pillButton("Browse Files", UiTheme.ACCENT);
+        btnBrowse.addActionListener(e -> shareLocalFile());
+        transferActions.add(btnBrowse);
+        JButton btnRemoveFile = pillButton("Remove Selected", UiTheme.DANGER);
+        btnRemoveFile.addActionListener(e -> removeSelectedFile());
+        transferActions.add(btnRemoveFile);
+        JLabel tip = new JLabel("  Tip: drag PDFs, images, or zip datasets from File Explorer.");
+        tip.setForeground(UiTheme.MUTED);
+        tip.setFont(UiTheme.UI_SMALL);
+        transferActions.add(tip);
+
+        JPanel transfersPanel = new JPanel(new BorderLayout(0, 10));
+        transfersPanel.setBackground(UiTheme.BG);
+        transfersPanel.setBorder(new EmptyBorder(8, 4, 4, 4));
+        transfersPanel.add(dropZone, BorderLayout.NORTH);
+        transfersPanel.add(transferStack, BorderLayout.CENTER);
+        transfersPanel.add(transferActions, BorderLayout.SOUTH);
+        tabs.addTab("Live Transfers", transfersPanel);
+
+        // Devices
         deviceTableModel = new DeviceTableModel();
-        JTable tblDevices = new JTable(deviceTableModel);
+        tblDevices = new JTable(deviceTableModel);
         styleTable(tblDevices);
-        tabs.addTab("Connected Devices", new JScrollPane(tblDevices));
+        JScrollPane deviceScroll = wrapTable(tblDevices);
+        devicesEmptyHint = emptyHintLabel(
+            "No students connected yet",
+            "Share the room code or QR. Devices appear here when they join."
+        );
+        devicesCards = cardTable(deviceScroll, devicesEmptyHint);
+        JPanel deviceStack = devicesCards;
+        JPanel deviceActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        deviceActions.setOpaque(false);
+        JButton btnKick = pillButton("Kick Selected Device", UiTheme.WARN);
+        btnKick.addActionListener(e -> kickSelectedDevice());
+        deviceActions.add(btnKick);
+        JPanel devicesPanel = new JPanel(new BorderLayout(0, 8));
+        devicesPanel.setBackground(UiTheme.BG);
+        devicesPanel.setBorder(new EmptyBorder(8, 4, 4, 4));
+        devicesPanel.add(deviceStack, BorderLayout.CENTER);
+        devicesPanel.add(deviceActions, BorderLayout.SOUTH);
+        tabs.addTab("Connected Devices", devicesPanel);
 
-        // Tab 3: Shared Clipboard
+        // Clipboard
         clipboardListModel = new DefaultListModel<>();
         JList<String> listClipboard = new JList<>(clipboardListModel);
-        listClipboard.setBackground(new Color(30, 41, 59));
-        listClipboard.setForeground(Color.WHITE);
+        listClipboard.setBackground(UiTheme.SURFACE);
+        listClipboard.setForeground(UiTheme.TEXT);
         listClipboard.setFont(new Font("Consolas", Font.PLAIN, 13));
-        tabs.addTab("Classroom Clipboard", new JScrollPane(listClipboard));
+        listClipboard.setBorder(new EmptyBorder(8, 8, 8, 8));
+        JScrollPane clipScroll = new JScrollPane(listClipboard);
+        styleScroll(clipScroll);
+        tabs.addTab("Classroom Clipboard", clipScroll);
 
-        // Tab 4: Search & History
         searchPanel = new SearchPanel(transferRepository, statsService);
         tabs.addTab("History & Search", searchPanel);
 
-        // Tab 5: Host Logs
         txtLogArea = new JTextArea();
         txtLogArea.setEditable(false);
-        txtLogArea.setBackground(new Color(15, 23, 42));
-        txtLogArea.setForeground(new Color(148, 163, 184));
-        txtLogArea.setFont(new Font("Consolas", Font.PLAIN, 12));
-        tabs.addTab("System Logs", new JScrollPane(txtLogArea));
+        txtLogArea.setBackground(UiTheme.BG);
+        txtLogArea.setForeground(UiTheme.MUTED);
+        txtLogArea.setFont(UiTheme.MONO);
+        txtLogArea.setBorder(new EmptyBorder(8, 8, 8, 8));
+        JScrollPane logScroll = new JScrollPane(txtLogArea);
+        styleScroll(logScroll);
+        tabs.addTab("System Logs", logScroll);
 
+        transferTableModel.addTableModelListener(e -> updateEmptyStates());
+        deviceTableModel.addTableModelListener(e -> updateEmptyStates());
+        updateEmptyStates();
         return tabs;
     }
 
     private JPanel buildStatusBar() {
         JPanel status = new JPanel(new BorderLayout(10, 0));
-        status.setBackground(new Color(30, 41, 59));
-        status.setBorder(new EmptyBorder(8, 12, 8, 12));
+        status.setBackground(UiTheme.SURFACE);
+        status.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 0, 0, UiTheme.BORDER),
+            new EmptyBorder(10, 12, 10, 12)
+        ));
 
-        // Left info
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 0));
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 14, 0));
         left.setOpaque(false);
-
         lblActiveUsers = new JLabel("Students Online: 0");
-        lblActiveUsers.setForeground(Color.WHITE);
-        lblActiveUsers.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        lblActiveUsers.setForeground(UiTheme.TEXT);
+        lblActiveUsers.setFont(UiTheme.UI_SMALL_BOLD);
         left.add(lblActiveUsers);
-
         lblSessionStats = new JLabel("Session Transfers: 0 | Transferred: 0 B");
-        lblSessionStats.setForeground(new Color(148, 163, 184));
-        lblSessionStats.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        lblSessionStats.setForeground(UiTheme.MUTED);
+        lblSessionStats.setFont(UiTheme.UI_SMALL);
         left.add(lblSessionStats);
-
+        lblHostToken = new JLabel("Host token: -");
+        lblHostToken.setForeground(UiTheme.MUTED);
+        lblHostToken.setFont(UiTheme.MONO);
+        left.add(lblHostToken);
         status.add(left, BorderLayout.WEST);
 
-        // Right controls: Start / End Session
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         right.setOpaque(false);
-
-        btnStartSession = new JButton("New Session");
-        styleButton(btnStartSession, new Color(13, 148, 136));
+        btnStartSession = pillButton("New Session", UiTheme.ACCENT);
         btnStartSession.addActionListener(e -> startNewSession());
         right.add(btnStartSession);
-
-        JButton btnSnapshot = new JButton("Save Snapshot");
-        styleButton(btnSnapshot, new Color(59, 130, 246));
+        JButton btnSnapshot = pillButton("Save Snapshot", UiTheme.INFO);
         btnSnapshot.addActionListener(e -> saveSnapshotAction());
         right.add(btnSnapshot);
-
-        JButton btnRestoreSnapshot = new JButton("Restore Snapshot");
-        styleButton(btnRestoreSnapshot, new Color(100, 116, 139));
+        JButton btnRestoreSnapshot = pillButton("Restore Snapshot", new Color(100, 116, 139));
         btnRestoreSnapshot.addActionListener(e -> restoreSnapshotAction());
         right.add(btnRestoreSnapshot);
-
-        btnEndSession = new JButton("End Session");
-        styleButton(btnEndSession, new Color(239, 68, 68));
+        btnEndSession = pillButton("End Session", UiTheme.DANGER);
         btnEndSession.addActionListener(e -> confirmEndSession());
         right.add(btnEndSession);
-
         status.add(right, BorderLayout.EAST);
-
         return status;
     }
 
-    private void styleTable(JTable table) {
-        table.setBackground(new Color(30, 41, 59));
-        table.setForeground(Color.WHITE);
-        table.setGridColor(new Color(71, 85, 105));
-        table.setRowHeight(26);
-        table.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        table.getTableHeader().setBackground(new Color(51, 65, 85));
-        table.getTableHeader().setForeground(Color.WHITE);
-        table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
+    private JPanel cardTable(JScrollPane scroll, JLabel emptyHint) {
+        JPanel stack = new JPanel(new CardLayout());
+        stack.setOpaque(false);
+        JPanel emptyWrap = new JPanel(new BorderLayout());
+        emptyWrap.setBackground(UiTheme.SURFACE);
+        emptyWrap.setBorder(BorderFactory.createLineBorder(UiTheme.BORDER));
+        emptyWrap.add(emptyHint, BorderLayout.CENTER);
+        stack.add(scroll, "table");
+        stack.add(emptyWrap, "empty");
+        return stack;
     }
 
-    private void styleButton(JButton btn, Color bg) {
+    private JLabel emptyHintLabel(String title, String subtitle) {
+        JLabel label = new JLabel("<html><div style='text-align:center;color:#94a3b8;'>"
+            + "<div style='font-size:14px;font-weight:bold;color:#e2e8f0;margin-bottom:6px;'>" + title + "</div>"
+            + "<div style='font-size:12px;'>" + subtitle + "</div></div></html>", SwingConstants.CENTER);
+        label.setOpaque(false);
+        return label;
+    }
+
+    private void updateEmptyStates() {
+        if (transfersCards != null) {
+            CardLayout cl = (CardLayout) transfersCards.getLayout();
+            cl.show(transfersCards, transferTableModel.getRowCount() == 0 ? "empty" : "table");
+        }
+        if (devicesCards != null) {
+            CardLayout cl = (CardLayout) devicesCards.getLayout();
+            cl.show(devicesCards, deviceTableModel.getRowCount() == 0 ? "empty" : "table");
+        }
+    }
+
+    private JScrollPane wrapTable(JTable table) {
+        JScrollPane scroll = new JScrollPane(table);
+        styleScroll(scroll);
+        return scroll;
+    }
+
+    private void styleScroll(JScrollPane scroll) {
+        scroll.getViewport().setBackground(UiTheme.SURFACE);
+        scroll.setBorder(BorderFactory.createLineBorder(UiTheme.BORDER));
+        scroll.setBackground(UiTheme.SURFACE);
+    }
+
+    private void styleTable(JTable table) {
+        table.setBackground(UiTheme.SURFACE);
+        table.setForeground(UiTheme.TEXT);
+        table.setGridColor(new Color(51, 65, 85));
+        table.setRowHeight(30);
+        table.setFont(UiTheme.UI_SMALL);
+        table.setSelectionBackground(new Color(13, 148, 136, 120));
+        table.setSelectionForeground(UiTheme.TEXT);
+        table.setShowHorizontalLines(true);
+        table.setShowVerticalLines(false);
+        table.setFillsViewportHeight(true);
+        table.setIntercellSpacing(new Dimension(0, 1));
+        table.getTableHeader().setBackground(UiTheme.SURFACE_ALT);
+        table.getTableHeader().setForeground(UiTheme.TEXT);
+        table.getTableHeader().setFont(UiTheme.UI_SMALL_BOLD);
+        table.getTableHeader().setReorderingAllowed(false);
+        DefaultTableCellRenderer renderer = new DefaultTableCellRenderer();
+        renderer.setBackground(UiTheme.SURFACE);
+        renderer.setForeground(UiTheme.TEXT);
+        renderer.setBorder(new EmptyBorder(0, 8, 0, 8));
+        table.setDefaultRenderer(Object.class, renderer);
+    }
+
+    private JButton pillButton(String text, Color bg) {
+        JButton btn = new JButton(text);
         btn.setBackground(bg);
         btn.setForeground(Color.WHITE);
         btn.setFocusPainted(false);
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        btn.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+        btn.setFont(UiTheme.UI_SMALL_BOLD);
         btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.putClientProperty("JButton.buttonType", "roundRect");
+        return btn;
     }
 
     public void refreshDisplayFromSession() {
@@ -341,50 +552,289 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         if (session != null && session.isActive()) {
             lblRoomCode.setText(session.getRoomCode());
             lblHostIp.setText(session.getHostIp());
-            lblModeBadge.setText(" " + session.getMode().name() + " ");
+            lblModeBadge.setText(" " + ShareUrlBuilder.displayModeName(session.getMode()) + " ");
 
-            String shareUrl = String.format("http://%s:%d/r/%s", session.getHostIp(), port, session.getRoomCode());
-            txtShareUrl.setText(shareUrl);
-
-            // Render QR Code thumbnail
-            try {
-                BufferedImage qr = qrService.generateQr(shareUrl, 96);
-                lblQrImage.setIcon(new ImageIcon(qr));
-            } catch (Exception e) {
+            String publicBase = tunnelService != null ? tunnelService.getPublicBaseUrl() : null;
+            String shareUrl = ShareUrlBuilder.shareUrlForSession(session, port, publicBase);
+            if (shareUrl == null && session.isInternetShare()) {
+                txtShareUrl.setText("Internet Share waiting for public HTTPS URL…");
                 lblQrImage.setIcon(null);
+            } else {
+                txtShareUrl.setText(shareUrl != null ? shareUrl : "No share URL");
+                try {
+                    BufferedImage qr = qrService.generateQr(shareUrl, 110);
+                    lblQrImage.setIcon(new ImageIcon(qr));
+                } catch (Exception e) {
+                    lblQrImage.setIcon(null);
+                }
             }
-
             deviceTableModel.setDevices(session.getDevices());
             btnEndSession.setEnabled(true);
-            log("Session active. Code: " + session.getRoomCode() + ", Host: " + session.getHostIp());
+            if (lblHostToken != null && session.getHostToken().length() >= 8) {
+                lblHostToken.setText("Host token: " + session.getHostToken().substring(0, 8) + "...");
+                lblHostToken.setToolTipText(session.getHostToken());
+            }
+            updateInternetBanner(session);
+            // Guard setSelectedItem — without this, ActionListener recreates sessions forever
+            syncingUi = true;
+            try {
+                cmbNetworkMode.setSelectedItem(session.getMode());
+                if (txtPassphrase != null && session.requiresPassphrase()) {
+                    txtPassphrase.setText(session.getPassphrase());
+                }
+            } finally {
+                syncingUi = false;
+            }
+            log("Session active. Code: " + session.getRoomCode()
+                + ", Mode: " + ShareUrlBuilder.displayModeName(session.getMode())
+                + ", URL: " + shareUrl);
         } else {
             lblRoomCode.setText("------");
             txtShareUrl.setText("No active session");
             lblQrImage.setIcon(null);
             btnEndSession.setEnabled(false);
+            if (lblHostToken != null) {
+                lblHostToken.setText("Host token: -");
+                lblHostToken.setToolTipText(null);
+            }
+            updateInternetBanner(null);
             log("Session ended or not started.");
         }
+        updateOfflineReadiness();
         updateStatsDisplay();
+        updateEmptyStates();
+    }
+
+    private void updateInternetBanner(RoomSession session) {
+        if (lblInternetBanner == null) return;
+        if (session != null && session.isInternetShare()) {
+            String pub = tunnelService != null ? tunnelService.getPublicBaseUrl() : null;
+            lblInternetBanner.setBackground(new Color(245, 158, 11, 50));
+            lblInternetBanner.setForeground(new Color(253, 230, 138));
+            if (pub != null) {
+                lblInternetBanner.setText("  Internet Share ON — anyone with link + passphrase can join (" + pub + ")");
+            } else {
+                lblInternetBanner.setText("  Internet Share ON — waiting for public URL (install cloudflared or set public.base.url)");
+            }
+        } else {
+            lblInternetBanner.setBackground(new Color(15, 158, 145, 40));
+            lblInternetBanner.setForeground(UiTheme.ACCENT_SOFT);
+            lblInternetBanner.setText("  Offline mode — no internet required. Students must join your hotspot/LAN.");
+        }
+    }
+
+    private void updateOfflineReadiness() {
+        if (lblOfflineReady == null) return;
+        RoomSession session = roomService.getCurrentSessionOrNull();
+        boolean hotspotUp = networkInfo.isHotspotAvailable();
+        boolean internet = session != null && session.isInternetShare();
+        if (internet) {
+            boolean pub = tunnelService != null && tunnelService.getPublicBaseUrl() != null;
+            lblOfflineReady.setBackground(pub ? new Color(245, 158, 11, 40) : new Color(239, 68, 68, 40));
+            lblOfflineReady.setForeground(pub ? new Color(253, 230, 138) : new Color(254, 202, 202));
+            lblOfflineReady.setText(pub
+                ? "  Internet ready — public HTTPS URL active. Prefer Hotspot when everyone is in-room."
+                : "  Internet not ready — no public URL yet. Install cloudflared or paste public.base.url.");
+            return;
+        }
+        if (hotspotUp) {
+            lblOfflineReady.setBackground(new Color(34, 197, 94, 35));
+            lblOfflineReady.setForeground(new Color(187, 247, 208));
+            lblOfflineReady.setText("  OFFLINE READY — Hotspot IP 192.168.137.1 found. Students: join this Wi-Fi, then scan QR. (No internet needed)");
+        } else {
+            lblOfflineReady.setBackground(new Color(245, 158, 11, 40));
+            lblOfflineReady.setForeground(new Color(253, 230, 138));
+            lblOfflineReady.setText("  Offline tip — turn on Windows Mobile Hotspot for best campus isolation bypass. LAN works if AP allows client traffic. Allow TCP "
+                + port + " in firewall.");
+        }
+    }
+
+    private NetworkMode currentOrPreferredMode() {
+        RoomSession current = roomService.getCurrentSessionOrNull();
+        if (current != null && current.isActive()) return current.getMode();
+        return networkInfo.isHotspotAvailable() ? NetworkMode.HOTSPOT : NetworkMode.LAN;
+    }
+
+    private void restoreModeCombo(NetworkMode mode) {
+        syncingUi = true;
+        try {
+            cmbNetworkMode.setSelectedItem(mode != null ? mode : NetworkMode.HOTSPOT);
+        } finally {
+            syncingUi = false;
+        }
+    }
+
+    private void abortInternetShare(NetworkMode restoreMode) {
+        if (tunnelService != null) {
+            tunnelService.stopInternetShare();
+        }
+        restoreModeCombo(restoreMode);
+        updateInternetBanner(roomService.getCurrentSessionOrNull());
+        updateOfflineReadiness();
     }
 
     private void switchNetworkMode(NetworkMode mode) {
-        if (mode == null) return;
-        String ip = (mode == NetworkMode.HOTSPOT) ? "192.168.137.1" : networkInfo.getPreferredIP();
-        roomService.createSession(mode, ip);
+        if (syncingUi || mode == null) return;
+
+        if (mode == NetworkMode.RELAY) {
+            enableInternetShare();
+            return;
+        }
+
+        RoomSession current = roomService.getCurrentSessionOrNull();
+        String ip = networkInfo.resolveHostIp(mode);
+        if (current != null && current.isActive()
+                && current.getMode() == mode
+                && ip.equals(current.getHostIp())) {
+            updateOfflineReadiness();
+            return;
+        }
+
+        if (current != null && current.isActive()) {
+            int opt = JOptionPane.showConfirmDialog(this,
+                "Switching mode creates a new room code.\nConnected students must rejoin.\n\nContinue?",
+                "New Room Code",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+            if (opt != JOptionPane.YES_OPTION) {
+                restoreModeCombo(current.getMode());
+                return;
+            }
+        }
+
+        if (tunnelService != null) {
+            tunnelService.stopInternetShare();
+        }
+
+        if (mode == NetworkMode.HOTSPOT && !networkInfo.isHotspotAvailable()) {
+            JOptionPane.showMessageDialog(this,
+                "Windows Mobile Hotspot IP (192.168.137.1) was not detected.\n"
+                    + "Turn on Mobile Hotspot, then choose HOTSPOT again.\n"
+                    + "Using best available local IP for now: " + ip,
+                "Hotspot Not Detected",
+                JOptionPane.WARNING_MESSAGE);
+        }
+
+        String pass = txtPassphrase != null ? new String(txtPassphrase.getPassword()).trim() : "";
+        roomService.createSession(mode, ip, pass.isEmpty() ? null : pass);
+    }
+
+    private void enableInternetShare() {
+        if (!com.classdrop.util.Config.isInternetShareEnabled()) {
+            JOptionPane.showMessageDialog(this,
+                "Internet Share is disabled in application.properties (internet.share.enabled=false).",
+                "Internet Share Disabled",
+                JOptionPane.WARNING_MESSAGE);
+            abortInternetShare(currentOrPreferredMode());
+            return;
+        }
+
+        NetworkMode previousMode = currentOrPreferredMode();
+        if (previousMode == NetworkMode.RELAY) {
+            previousMode = networkInfo.isHotspotAvailable() ? NetworkMode.HOTSPOT : NetworkMode.LAN;
+        }
+
+        String pass = txtPassphrase != null ? new String(txtPassphrase.getPassword()).trim() : "";
+        if (pass.length() < 4) {
+            JOptionPane.showMessageDialog(this,
+                "Internet Share requires a room passphrase (min 4 characters).\n"
+                    + "Students outside your hotspot/LAN will need this passphrase to join.",
+                "Passphrase Required",
+                JOptionPane.WARNING_MESSAGE);
+            abortInternetShare(previousMode);
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(this,
+            "This leaves offline-only mode.\n\n"
+                + "• Room becomes reachable on the public internet via HTTPS tunnel\n"
+                + "• A new room code will be created (students must rejoin)\n"
+                + "• Passphrase is mandatory\n"
+                + "• Host laptop needs internet uplink\n\n"
+                + "Prefer HOTSPOT when everyone is in the same room.\n\nContinue with Internet Share?",
+            "Leave Offline Mode?",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) {
+            abortInternetShare(previousMode);
+            return;
+        }
+
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        boolean tunnelOk = false;
+        try {
+            tunnelOk = tunnelService.startInternetShare();
+        } finally {
+            setCursor(Cursor.getDefaultCursor());
+        }
+
+        if (!tunnelOk && tunnelService.getPublicBaseUrl() == null) {
+            String manual = JOptionPane.showInputDialog(this,
+                "cloudflared was not found or did not return a URL.\n"
+                    + "Paste a public HTTPS base URL from ngrok/Cloudflare\n"
+                    + "(example: https://abc.trycloudflare.com):",
+                "Manual Public URL",
+                JOptionPane.QUESTION_MESSAGE);
+            if (manual == null || manual.isBlank()) {
+                abortInternetShare(previousMode);
+                return;
+            }
+            tunnelService.setManualPublicBaseUrl(manual.trim());
+        }
+
+        if (tunnelService.getPublicBaseUrl() == null) {
+            JOptionPane.showMessageDialog(this,
+                "No public HTTPS URL available. Staying in offline mode.",
+                "Internet Share Failed",
+                JOptionPane.ERROR_MESSAGE);
+            abortInternetShare(previousMode);
+            return;
+        }
+
+        String ip = networkInfo.getPreferredIP();
+        RoomSession created = roomService.createSession(NetworkMode.RELAY, ip, pass);
+        JOptionPane.showMessageDialog(this,
+            "Internet Share enabled.\n\n"
+                + "Public link:\n" + ShareUrlBuilder.shareUrlForSession(created, port, tunnelService.getPublicBaseUrl()) + "\n\n"
+                + "Passphrase: " + pass + "\n\n"
+                + "Students on Somaiya Wi-Fi or mobile data can join with this link.",
+            "Internet Share Ready",
+            JOptionPane.INFORMATION_MESSAGE);
         refreshDisplayFromSession();
+    }
+
+    private void applyPassphraseFromField(RoomSession session) {
+        if (session == null || txtPassphrase == null) return;
+        String pass = new String(txtPassphrase.getPassword()).trim();
+        if (session.isInternetShare() && pass.length() < 4) {
+            return; // keep existing passphrase rather than clearing internet gate
+        }
+        if (!pass.isEmpty()) {
+            session.setPassphrase(pass);
+            roomService.setSessionPassphrase(pass);
+        } else if (!session.isInternetShare()) {
+            session.setPassphrase(null);
+        }
     }
 
     private void startNewSession() {
         NetworkMode mode = (NetworkMode) cmbNetworkMode.getSelectedItem();
-        String ip = (mode == NetworkMode.HOTSPOT) ? "192.168.137.1" : networkInfo.getPreferredIP();
-        roomService.createSession(mode, ip);
-        refreshDisplayFromSession();
+        if (mode == null) mode = NetworkMode.HOTSPOT;
+        if (mode == NetworkMode.RELAY) {
+            enableInternetShare();
+            return;
+        }
+        if (tunnelService != null) {
+            tunnelService.stopInternetShare();
+        }
+        String ip = networkInfo.resolveHostIp(mode);
+        String pass = txtPassphrase != null ? new String(txtPassphrase.getPassword()).trim() : "";
+        roomService.createSession(mode, ip, pass.isEmpty() ? null : pass);
     }
 
     private void saveSnapshotAction() {
         try {
-            com.classdrop.service.SnapshotService snapshotService = 
-                new com.classdrop.service.SnapshotService(roomService, fileService, clipboardService);
+            SnapshotService snapshotService = new SnapshotService(roomService, fileService, clipboardService);
             boolean ok = snapshotService.saveDefault();
             if (ok) {
                 JOptionPane.showMessageDialog(this, "Session state saved to session.ser", "Snapshot Saved", JOptionPane.INFORMATION_MESSAGE);
@@ -399,15 +849,14 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
 
     private void restoreSnapshotAction() {
         try {
-            com.classdrop.service.SnapshotService snapshotService = 
-                new com.classdrop.service.SnapshotService(roomService, fileService, clipboardService);
+            SnapshotService snapshotService = new SnapshotService(roomService, fileService, clipboardService);
             boolean ok = snapshotService.restoreDefault();
             if (ok) {
                 refreshDisplayFromSession();
                 JOptionPane.showMessageDialog(this, "Session state restored from session.ser", "Snapshot Restored", JOptionPane.INFORMATION_MESSAGE);
                 log("Session state restored from session.ser");
             } else {
-                JOptionPane.showMessageDialog(this, "No valid session snapshot found on disk (session.ser missing or empty).", "Restore Notice", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, "No valid session snapshot found on disk.", "Restore Notice", JOptionPane.WARNING_MESSAGE);
             }
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Failed to restore snapshot: " + ex.getMessage(), "Snapshot Error", JOptionPane.ERROR_MESSAGE);
@@ -417,12 +866,15 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
     private void confirmEndSession() {
         int opt = JOptionPane.showConfirmDialog(
             this,
-            "Are you sure you want to end this classroom session?\nAll active tokens and sharing will stop.",
+            "End this classroom session?\nAll active tokens and sharing will stop.",
             "End ClassDrop Session",
             JOptionPane.YES_NO_OPTION,
             JOptionPane.WARNING_MESSAGE
         );
         if (opt == JOptionPane.YES_OPTION) {
+            if (tunnelService != null) {
+                tunnelService.stopInternetShare();
+            }
             roomService.endSession();
             refreshDisplayFromSession();
         }
@@ -436,9 +888,128 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
             JOptionPane.YES_NO_OPTION
         );
         if (opt == JOptionPane.YES_OPTION) {
+            if (tunnelService != null) {
+                tunnelService.stopInternetShare();
+            }
             roomService.endSession();
             dispose();
             System.exit(0);
+        }
+    }
+
+    private void shareLocalFile() {
+        RoomSession session = roomService.getCurrentSessionOrNull();
+        if (session == null || !session.isActive()) {
+            JOptionPane.showMessageDialog(this, "Start an active session before sharing a file.", "No Session", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setMultiSelectionEnabled(true);
+        chooser.setDialogTitle("Share local files with the classroom");
+        chooser.setFileFilter(new FileNameExtensionFilter(
+            "Classroom files (pdf, images, docs, code, zip)",
+            "pdf", "png", "jpg", "jpeg", "gif", "webp", "doc", "docx", "ppt", "pptx",
+            "xls", "xlsx", "txt", "csv", "json", "java", "py", "sql", "html", "css", "zip"
+        ));
+        chooser.setAcceptAllFileFilterUsed(true);
+        int result = chooser.showOpenDialog(this);
+        if (result != JFileChooser.APPROVE_OPTION) return;
+        shareFiles(List.of(chooser.getSelectedFiles()));
+    }
+
+    private void shareFiles(List<File> files) {
+        RoomSession session = roomService.getCurrentSessionOrNull();
+        if (session == null || !session.isActive()) {
+            JOptionPane.showMessageDialog(this, "Start an active session before sharing a file.", "No Session", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (files == null || files.isEmpty()) return;
+
+        List<String> okLines = new ArrayList<>();
+        List<String> failLines = new ArrayList<>();
+        for (File file : files) {
+            if (file == null || !file.isFile()) {
+                if (file != null) failLines.add(file.getName() + " (not a file)");
+                continue;
+            }
+            try {
+                long size = Files.size(file.toPath());
+                SharedItem item = fileService.send(file.toPath());
+                okLines.add(item.getOriginalName() + "  ·  " + item.getKind() + "  ·  " + formatBytes(item.getSizeBytes()));
+                log("Host shared: " + item.getOriginalName() + " [" + formatBytes(size) + "]");
+            } catch (Exception ex) {
+                failLines.add(file.getName() + " — " + ex.getMessage());
+            }
+        }
+        updateStatsDisplay();
+        updateEmptyStates();
+
+        StringBuilder msg = new StringBuilder();
+        if (!okLines.isEmpty()) {
+            msg.append("Shared successfully:\n");
+            for (String line : okLines) msg.append("  • ").append(line).append('\n');
+        }
+        if (!failLines.isEmpty()) {
+            if (msg.length() > 0) msg.append('\n');
+            msg.append("Failed:\n");
+            for (String line : failLines) msg.append("  • ").append(line).append('\n');
+        }
+        if (msg.length() > 0) {
+            JOptionPane.showMessageDialog(this, msg.toString().trim(),
+                okLines.isEmpty() ? "Share Failed" : "Files Shared",
+                okLines.isEmpty() ? JOptionPane.ERROR_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private void removeSelectedFile() {
+        int row = tblTransfers != null ? tblTransfers.getSelectedRow() : -1;
+        if (row < 0) {
+            JOptionPane.showMessageDialog(this, "Select a transfer/file row to remove.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        String fileId = transferTableModel.getTransferIdAt(row);
+        String name = transferTableModel.getFilenameAt(row);
+        try {
+            RoomSession session = roomService.getCurrentSessionOrNull();
+            if (session != null) {
+                for (SharedItem item : session.getItems()) {
+                    if (item.getOriginalName().equals(name)) {
+                        fileId = item.getId();
+                        break;
+                    }
+                }
+            }
+            fileService.removeFile(fileId);
+            transferTableModel.removeRow(row);
+            log("Host removed file: " + name);
+            updateStatsDisplay();
+            updateEmptyStates();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Could not remove file:\n" + ex.getMessage(),
+                "Remove Failed", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void kickSelectedDevice() {
+        int row = tblDevices != null ? tblDevices.getSelectedRow() : -1;
+        if (row < 0) {
+            JOptionPane.showMessageDialog(this, "Select a connected device to kick.", "No Selection", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        Device device = deviceTableModel.getDeviceAt(row);
+        if (device == null) return;
+        int opt = JOptionPane.showConfirmDialog(this,
+            "Kick " + device.getDisplayName() + " from the room?\nTheir token will stop working.",
+            "Kick Device", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (opt != JOptionPane.YES_OPTION) return;
+        try {
+            roomService.kickDevice(device.getId());
+            log("Host kicked device: " + device.getDisplayName());
+            updateStatsDisplay();
+            updateEmptyStates();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Kick failed:\n" + ex.getMessage(),
+                "Kick Failed", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -449,15 +1020,11 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
     }
 
     private void openWhatsappLink() {
-        String url = txtShareUrl.getText();
-        String wa = ShareLinks.whatsappUrl(url);
-        openBrowserUri(wa);
+        openBrowserUri(ShareLinks.whatsappUrl(txtShareUrl.getText()));
     }
 
     private void openEmailLink() {
-        String url = txtShareUrl.getText();
-        String mail = ShareLinks.emailUrl(url);
-        openBrowserUri(mail);
+        openBrowserUri(ShareLinks.emailUrl(txtShareUrl.getText()));
     }
 
     private void openBrowserUri(String uriStr) {
@@ -480,18 +1047,18 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         if (statsService != null && session != null) {
             StatsService.SessionStats stats = statsService.getSessionStats(session.getId());
             if (stats.transferCount() > 0) {
-                lblSessionStats.setText(String.format("Session Transfers: %d (↑%d ↓%d) | Transferred: %s",
+                lblSessionStats.setText(String.format("Session Transfers: %d (up %d / down %d) | %s",
                     stats.transferCount(), stats.uploadCount(), stats.downloadCount(), formatBytes(stats.totalBytes())));
                 return;
             }
         }
-
         int count = transferTableModel.getTransferCount();
         long bytes = transferTableModel.getTotalTransferredBytes();
         lblSessionStats.setText(String.format("Session Transfers: %d | Transferred: %s", count, formatBytes(bytes)));
     }
 
     private void log(String msg) {
+        if (txtLogArea == null) return;
         String line = "[" + LocalDateTime.now().format(TIME_FMT) + "] " + msg + "\n";
         txtLogArea.append(line);
         txtLogArea.setCaretPosition(txtLogArea.getDocument().getLength());
@@ -505,13 +1072,12 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         return String.format("%.1f %s", bytes / Math.pow(1024, idx), units[idx]);
     }
 
-    // ── SessionListener Callbacks (dispatched to EDT via invokeLater) ──
-
     @Override
     public void onDeviceJoined(Device device) {
         SwingUtilities.invokeLater(() -> {
             deviceTableModel.addDevice(device);
             updateStatsDisplay();
+            updateEmptyStates();
             log("Device joined: " + device.getDisplayName() + " (" + device.getIpAddress() + ")");
         });
     }
@@ -521,6 +1087,7 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         SwingUtilities.invokeLater(() -> {
             deviceTableModel.removeDevice(device.getId());
             updateStatsDisplay();
+            updateEmptyStates();
             log("Device left: " + device.getDisplayName());
         });
     }
@@ -530,15 +1097,14 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         SwingUtilities.invokeLater(() -> {
             transferTableModel.addOrUpdate(record);
             updateStatsDisplay();
+            updateEmptyStates();
             log("Transfer started: " + record.getOriginalName() + " (" + record.getDirection() + ")");
         });
     }
 
     @Override
     public void onTransferProgress(String transferId, long bytesTransferred, long totalBytes) {
-        SwingUtilities.invokeLater(() -> {
-            transferTableModel.updateProgress(transferId, bytesTransferred, totalBytes);
-        });
+        SwingUtilities.invokeLater(() -> transferTableModel.updateProgress(transferId, bytesTransferred, totalBytes));
     }
 
     @Override
@@ -546,9 +1112,8 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         SwingUtilities.invokeLater(() -> {
             transferTableModel.addOrUpdate(record);
             updateStatsDisplay();
-            if (searchPanel != null) {
-                searchPanel.doSearch();
-            }
+            updateEmptyStates();
+            if (searchPanel != null) searchPanel.doSearch();
             log("Transfer complete: " + record.getOriginalName() + " [" + formatBytes(record.getSizeBytes()) + "]");
         });
     }
@@ -558,6 +1123,7 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         SwingUtilities.invokeLater(() -> {
             transferTableModel.addOrUpdate(record);
             updateStatsDisplay();
+            updateEmptyStates();
             log("Transfer FAILED: " + record.getOriginalName() + " (" + reason + ")");
         });
     }

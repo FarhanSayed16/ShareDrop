@@ -116,11 +116,15 @@ public class SearchPanel extends JPanel {
         tblResults = new JTable(tableModel);
         tblResults.setBackground(new Color(30, 41, 59));
         tblResults.setForeground(Color.WHITE);
-        tblResults.setGridColor(new Color(71, 85, 105));
-        tblResults.setRowHeight(26);
+        tblResults.setGridColor(new Color(51, 65, 85));
+        tblResults.setRowHeight(30);
         tblResults.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        tblResults.getTableHeader().setBackground(new Color(15, 23, 42));
-        tblResults.getTableHeader().setForeground(new Color(203, 213, 225));
+        tblResults.setFillsViewportHeight(true);
+        tblResults.setShowVerticalLines(false);
+        tblResults.setSelectionBackground(new Color(13, 148, 136, 120));
+        tblResults.setSelectionForeground(Color.WHITE);
+        tblResults.getTableHeader().setBackground(new Color(51, 65, 85));
+        tblResults.getTableHeader().setForeground(new Color(248, 250, 252));
         tblResults.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
 
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
