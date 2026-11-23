@@ -27,7 +27,8 @@ public final class HandlerSupport {
 
     public static void sendError(HttpExchange exchange, int statusCode, String errorCode, String message) throws IOException {
         String safeMsg = message != null ? message.replace("\"", "\\\"") : "An error occurred";
-        String json = String.format("{\"error\":\"%s\",\"message\":\"%s\"}", errorCode, safeMsg);
+        // Include both "error" and "code" so web clients can match either field
+        String json = String.format("{\"error\":\"%s\",\"code\":\"%s\",\"message\":\"%s\"}", errorCode, errorCode, safeMsg);
         sendJson(exchange, statusCode, json);
     }
 
@@ -58,28 +59,38 @@ public final class HandlerSupport {
         return "127.0.0.1";
     }
 
-    public static Device requireToken(HttpExchange exchange, RoomService roomService) throws IOException {
+    public static String extractToken(HttpExchange exchange) {
         String token = exchange.getRequestHeaders().getFirst("X-ClassDrop-Token");
         if (token == null || token.trim().isEmpty()) {
-            // Check query param fallback
+            token = exchange.getRequestHeaders().getFirst("X-ClassDrop-Host-Token");
+        }
+        if (token == null || token.trim().isEmpty()) {
             String query = exchange.getRequestURI().getQuery();
-            if (query != null && query.contains("token=")) {
+            if (query != null) {
                 for (String param : query.split("&")) {
                     if (param.startsWith("token=")) {
                         token = param.substring(6);
                         break;
                     }
+                    if (param.startsWith("hostToken=")) {
+                        token = param.substring(10);
+                        break;
+                    }
                 }
             }
         }
+        return token != null ? token.trim() : null;
+    }
 
-        if (token == null || token.trim().isEmpty()) {
+    public static Device requireToken(HttpExchange exchange, RoomService roomService) throws IOException {
+        String token = extractToken(exchange);
+        if (token == null || token.isEmpty()) {
             sendError(exchange, 401, "UNAUTHORIZED", "Missing authentication token. Please join the room.");
             return null;
         }
 
         try {
-            Device device = roomService.validateToken(token.trim());
+            Device device = roomService.validateToken(token);
             if (device == null) {
                 sendError(exchange, 401, "UNAUTHORIZED", "Invalid token or device not recognized.");
                 return null;
@@ -91,9 +102,53 @@ public final class HandlerSupport {
         }
     }
 
+    /** Accepts either a student device token or the session host token. */
+    public static boolean requireHostOrDevice(HttpExchange exchange, RoomService roomService) throws IOException {
+        String token = extractToken(exchange);
+        if (token == null || token.isEmpty()) {
+            sendError(exchange, 401, "UNAUTHORIZED", "Missing authentication token.");
+            return false;
+        }
+        try {
+            if (roomService.isHostToken(token)) {
+                return true;
+            }
+            Device device = roomService.validateToken(token);
+            if (device == null) {
+                sendError(exchange, 401, "UNAUTHORIZED", "Invalid token.");
+                return false;
+            }
+            return true;
+        } catch (SessionExpiredException e) {
+            sendClassDropException(exchange, e);
+            return false;
+        }
+    }
+
+    public static boolean requireHostToken(HttpExchange exchange, RoomService roomService) throws IOException {
+        String token = extractToken(exchange);
+        if (token == null || token.isEmpty()) {
+            sendError(exchange, 401, "UNAUTHORIZED", "Missing host token.");
+            return false;
+        }
+        try {
+            if (!roomService.isHostToken(token)) {
+                sendError(exchange, 403, "FORBIDDEN", "Host token required for this action.");
+                return false;
+            }
+            return true;
+        } catch (SessionExpiredException e) {
+            sendClassDropException(exchange, e);
+            return false;
+        }
+    }
+
     public static void setCorsHeaders(HttpExchange exchange) {
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, X-ClassDrop-Token");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Headers",
+            "Content-Type, X-ClassDrop-Token, X-ClassDrop-Host-Token, Range");
+        exchange.getResponseHeaders().set("Access-Control-Expose-Headers",
+            "Content-Disposition, Content-Range, Accept-Ranges, Content-Length");
     }
 }

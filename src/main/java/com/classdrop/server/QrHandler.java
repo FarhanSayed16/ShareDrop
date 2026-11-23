@@ -3,6 +3,8 @@ package com.classdrop.server;
 import com.classdrop.model.RoomSession;
 import com.classdrop.service.QrService;
 import com.classdrop.service.RoomService;
+import com.classdrop.service.TunnelService;
+import com.classdrop.util.ShareUrlBuilder;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
@@ -14,11 +16,17 @@ public final class QrHandler implements HttpHandler {
     private final RoomService roomService;
     private final QrService qrService;
     private final int port;
+    private final TunnelService tunnelService;
 
     public QrHandler(RoomService roomService, QrService qrService, int port) {
+        this(roomService, qrService, port, null);
+    }
+
+    public QrHandler(RoomService roomService, QrService qrService, int port, TunnelService tunnelService) {
         this.roomService = roomService;
         this.qrService = qrService;
         this.port = port;
+        this.tunnelService = tunnelService;
     }
 
     @Override
@@ -35,7 +43,12 @@ public final class QrHandler implements HttpHandler {
             return;
         }
 
-        String shareUrl = String.format("http://%s:%d/r/%s", session.getHostIp(), port, session.getRoomCode());
+        String publicBase = tunnelService != null ? tunnelService.getPublicBaseUrl() : null;
+        String shareUrl = ShareUrlBuilder.shareUrlForSession(session, port, publicBase);
+        if (shareUrl == null) {
+            // RELAY without public URL — fall back to local so QR endpoint is never empty
+            shareUrl = ShareUrlBuilder.localRoomUrl(session.getHostIp(), port, session.getRoomCode());
+        }
         byte[] png = qrService.generateQrPngBytes(shareUrl, 300);
 
         exchange.getResponseHeaders().set("Content-Type", "image/png");

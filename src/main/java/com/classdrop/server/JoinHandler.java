@@ -1,13 +1,22 @@
 package com.classdrop.server;
 
+import com.classdrop.exception.InvalidPassphraseException;
 import com.classdrop.exception.InvalidRoomCodeException;
 import com.classdrop.exception.SessionExpiredException;
 import com.classdrop.model.Device;
+import com.classdrop.model.RoomSession;
 import com.classdrop.service.RoomService;
+import com.classdrop.util.JsonUtil;
+import com.classdrop.util.ShareUrlBuilder;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class JoinHandler implements HttpHandler {
     private final RoomService roomService;
@@ -32,9 +41,23 @@ public final class JoinHandler implements HttpHandler {
         String body = HandlerSupport.readBody(exchange);
         String clientIp = HandlerSupport.getClientIp(exchange);
 
-        // Robust extraction for roomCode and deviceName (JSON or Form-URL-Encoded)
-        String roomCode = extractParam(body, "roomCode");
-        String deviceName = extractParam(body, "deviceName");
+        Map<String, String> json = JsonUtil.parseObject(body);
+        String roomCode = JsonUtil.getString(json, "roomCode");
+        String deviceName = JsonUtil.getString(json, "deviceName");
+        if (deviceName == null) {
+            deviceName = JsonUtil.getString(json, "displayName");
+        }
+        String passphrase = JsonUtil.getString(json, "passphrase");
+
+        if (roomCode == null || roomCode.isEmpty()) {
+            roomCode = extractFormParam(body, "roomCode");
+        }
+        if (deviceName == null || deviceName.isEmpty()) {
+            deviceName = extractFormParam(body, "deviceName");
+        }
+        if (passphrase == null) {
+            passphrase = extractFormParam(body, "passphrase");
+        }
 
         if (roomCode == null || roomCode.trim().isEmpty()) {
             HandlerSupport.sendError(exchange, 400, "BAD_REQUEST", "roomCode is required");
@@ -42,43 +65,31 @@ public final class JoinHandler implements HttpHandler {
         }
 
         try {
-            Device device = roomService.join(roomCode.trim(), deviceName, clientIp);
-            String resp = String.format(
-                "{\"token\":\"%s\",\"deviceId\":\"%s\",\"deviceName\":\"%s\",\"sessionActive\":true}",
-                device.getToken(), device.getId(), device.getDisplayName()
-            );
+            Device device = roomService.join(roomCode.trim(), deviceName, clientIp, passphrase);
+            RoomSession session = roomService.getCurrentSessionOrNull();
+            String resp = "{"
+                + "\"token\":" + JsonUtil.quote(device.getToken()) + ","
+                + "\"deviceId\":" + JsonUtil.quote(device.getId()) + ","
+                + "\"deviceName\":" + JsonUtil.quote(device.getDisplayName()) + ","
+                + "\"sessionActive\":true,"
+                + "\"internetShare\":" + (session != null && session.isInternetShare()) + ","
+                + "\"mode\":" + JsonUtil.quote(session != null ? ShareUrlBuilder.displayModeName(session.getMode()) : "LAN")
+                + "}";
             HandlerSupport.sendJson(exchange, 200, resp);
-        } catch (InvalidRoomCodeException | SessionExpiredException e) {
+        } catch (InvalidRoomCodeException | InvalidPassphraseException | SessionExpiredException e) {
             HandlerSupport.sendClassDropException(exchange, e);
         } catch (Exception e) {
             HandlerSupport.sendError(exchange, 500, "INTERNAL_ERROR", e.getMessage());
         }
     }
 
-    private String extractParam(String body, String key) {
-        if (body == null || body.trim().isEmpty()) return null;
-
-        // Try JSON pattern: "key": "value" or "key": 123456
-        String jsonPattern = "\"" + key + "\"\\s*:\\s*\"?([^\",}]+)\"?";
-        java.util.regex.Matcher jsonMatcher = java.util.regex.Pattern.compile(jsonPattern).matcher(body);
-        if (jsonMatcher.find()) {
-            String val = jsonMatcher.group(1).trim();
-            if (val.startsWith("\"")) val = val.substring(1);
-            if (val.endsWith("\"")) val = val.substring(0, val.length() - 1);
-            return val;
-        }
-
-        // Try URL-encoded pattern: key=value
-        String formPattern = "(?:^|&)" + key + "=([^&]*)";
-        java.util.regex.Matcher formMatcher = java.util.regex.Pattern.compile(formPattern).matcher(body);
+    private String extractFormParam(String body, String key) {
+        if (body == null || body.isBlank()) return null;
+        Pattern formPattern = Pattern.compile("(?:^|&)" + Pattern.quote(key) + "=([^&]*)");
+        Matcher formMatcher = formPattern.matcher(body);
         if (formMatcher.find()) {
-            try {
-                return java.net.URLDecoder.decode(formMatcher.group(1), java.nio.charset.StandardCharsets.UTF_8);
-            } catch (Exception e) {
-                return formMatcher.group(1);
-            }
+            return URLDecoder.decode(formMatcher.group(1), StandardCharsets.UTF_8);
         }
-
         return null;
     }
 }
