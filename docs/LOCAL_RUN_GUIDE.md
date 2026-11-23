@@ -21,6 +21,10 @@ Before running ClassDrop locally, verify that your machine has:
    ```powershell
    mvn -version
    ```
+   If `mvn` is not recognized, install Maven and add its `bin` folder to PATH, **or** skip rebuild and run the existing fat JAR:
+   ```powershell
+   java -jar target\classdrop-1.0.0.jar
+   ```
 
 3. **MySQL 8** (Optional):
    ClassDrop includes **automatic in-memory fallback**. If MySQL is not running, the app starts and functions 100% normally in-memory without crashing.

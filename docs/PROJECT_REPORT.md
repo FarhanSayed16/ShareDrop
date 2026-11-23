@@ -227,12 +227,12 @@ ClassDrop provides crash resilience through standard Java Object Serialization:
 ## CHAPTER 6: TESTING & VERIFICATION RESULTS
 
 ### 6.1 Automated JUnit 5 Test Suite Summary
-The project contains 66 automated tests across 17 test suites, achieving a **100% pass rate** in under 6 seconds:
+The project contains **77 automated tests** across 19 test suites, achieving a **100% pass rate** (post Enhancement Plan C):
 
 | Test Suite Class | Tests Run | Result | Key Coverage |
 |---|---|---|---|
 | `RoomCodeGeneratorTest` | 3 | Pass | Entropy, length, format validation |
-| `FilenameSanitizerTest` | 5 | Pass | Path traversal, null bytes, length caps |
+| `FilenameSanitizerTest` | 6 | Pass | Path traversal, null bytes, length caps, blocklist |
 | `ShareLinksTest` | 2 | Pass | WhatsApp & Email RFC 3986 deep-links |
 | `RoomServiceTest` | 5 | Pass | Room lifecycle, token auth, brute-force |
 | `FileServiceTest` | 4 | Pass | 64 KB chunking, 100 MB caps, purge |
@@ -244,10 +244,12 @@ The project contains 66 automated tests across 17 test suites, achieving a **100
 | `SearchPanelTest` | 2 | Pass | Parameterized LIKE search & filter rendering |
 | `JdbcRepositoriesTest` | 7 | Pass | Session, Device, Transfer, Snippet, Aggregates, Fallback |
 | `SnapshotServiceTest` | 3 | Pass | Full serialization round-trip across restarts |
-| `ClassDropServerIntegrationTest` | 10 | Pass | Full HTTP workflow (join, upload, list, download) |
+| `ClassDropServerIntegrationTest` | 13 | Pass | Full HTTP workflow + me/stats/Range/ZIP/remove |
 | `SecurityAndConcurrencyTest` | 7 | Pass | 403 traversal, 401 tokens, 410 end, 5 threads concurrent, 8 MB stream |
 | `SharedItemTest` | 3 | Pass | Polymorphic kinds and MIME dispatch |
-| **TOTAL** | **66** | **ALL PASS** | **Zero Failures, Zero Errors, Zero Skipped** |
+| `JsonUtilTest` | 3 | Pass | Request JSON parsing / escaping |
+| `HostControlsTest` | 4 | Pass | Kick, remove, blocklist, host token |
+| **TOTAL** | **77** | **ALL PASS** | **Zero Failures, Zero Errors, Zero Skipped** |
 
 ---
 
@@ -258,11 +260,14 @@ The project contains 66 automated tests across 17 test suites, achieving a **100
 2. **Hotspot Client Caps**: Typical consumer Windows Wi-Fi chipset hotspot adapters support a maximum of 8 to 12 concurrently connected client devices.
 3. **Storage Caps**: Files are staged on the host laptop's local disk; transfers are bounded by host disk capacity and the configurable 100 MB default per-file cap.
 
-### 7.2 Future Scope
+### 7.2 Enhancements Delivered (post-MVP)
+- Host controls: share local files from Swing, remove shared files, kick devices, extension blocklist.
+- Transfer reliability: HTTP `Range` resume (206 Partial Content) and download-all ZIP archives.
+- Live UX: `/me` + `/stats` APIs, image preview thumbnails, Server-Sent Events with polling fallback.
+
+### 7.3 Future Scope
 - Implementation of local self-signed TLS/SSL encryption certificates for HTTPS.
-- Automatic compression of multiple selected files into dynamic on-the-fly ZIP archives (`ZipOutputStream`).
 - Multicast DNS (mDNS) / UDP broadcast beaconing for automatic room discovery without entering codes.
-- HTTP `Range` header support for resumable chunk transfers on flaky Wi-Fi connections.
 
 ---
 
