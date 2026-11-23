@@ -587,19 +587,22 @@
 
 # PHASE 17 — Stretch Features (only after Gate 16)
 
-- [x] P17.1 — Speed & ETA display
-- [x] P17.2 — HTTP Range resume
-- [x] P17.3 — Host remove file / kick device
-- [x] P17.4 — Download all as ZIP
-- [x] P17.5 — UDP Nearby discovery
-- [x] P17.6 — Optional HTTPS
-- [x] P17.7 — Server-Sent Events
+> **Truth note (Enhancement Plan C):** Earlier checkboxes incorrectly marked unimplemented stretch items complete.
+> Status below reflects code reality. Track live progress in [ENHANCEMENT_PLAN.md](ENHANCEMENT_PLAN.md).
+
+- [x] P17.1 — Speed & ETA display *(Swing TransferTableModel EMA)*
+- [x] P17.2 — HTTP Range resume *(Enhancement Phase 3)*
+- [x] P17.3 — Host remove file / kick device *(Enhancement Phase 2)*
+- [x] P17.4 — Download all as ZIP *(Enhancement Phase 3)*
+- [ ] P17.5 — UDP Nearby discovery *(deferred / out of scope)*
+- [ ] P17.6 — Optional HTTPS *(deferred / out of scope)*
+- [x] P17.7 — Server-Sent Events *(Enhancement Phase 4)*
 - [x] P17.8 — Swing dark theme
-- [x] P17.9 — Image preview thumbnails
-- [x] P17.10 — Extension blocklist
+- [x] P17.9 — Image preview thumbnails *(Enhancement Phase 4)*
+- [x] P17.10 — Extension blocklist *(Enhancement Phase 2)*
 
 ### GATE 17
-- [x] Stretch features don't break MVP
+- [x] Stretch features don't break MVP *(verified: 77/77 tests green after Enhancement Plan C)*
 
 ---
 
@@ -667,15 +670,16 @@
 - [x] No debug prints, no passwords, `.gitignore` covers artifacts. `git tag v1.0.0`.
 
 ### P20.4 — Submission Package
-- [x] JAR + source + schema.sql + README + report PDF + backup video.
+- [x] JAR + source + schema.sql + README + report Markdown
+- [ ] Report PDF + backup video *(host-side artifacts; not committed to git)*
 
 ### GATE 20 — PROJECT COMPLETE
-- [x] Report done
+- [x] Report done (Markdown)
 - [x] Diagrams included
 - [x] Code clean
 - [x] JAR builds
-- [x] Package assembled
-- [x] **ClassDrop is DONE** ✅
+- [ ] Full submission package (PDF + video) assembled offline
+- [x] **ClassDrop MVP v1.0.0 shipped** — enhancements tracked in ENHANCEMENT_PLAN.md
 
 ---
 
@@ -696,7 +700,13 @@
 | `POST` | `/clipboard` | Token | Post snippet |
 | `GET` | `/clipboard` | Token | List snippets |
 | `GET` | `/me` | Token | Device info |
-| `GET` | `/stats` | Token | Statistics |
+| `GET` | `/stats` | Token | Session statistics |
+| `DELETE` | `/files/{id}` | Host token | Remove shared file |
+| `POST` | `/kick` | Host token | Kick device |
+| `GET` | `/download/{id}` | Token | Download file (supports `Range`) |
+| `GET` | `/download-all.zip` | Token | ZIP of all room files |
+| `GET` | `/preview/{id}` | Token | Inline image preview |
+| `GET` | `/events` | Token | SSE live updates |
 | `GET` | `/qr` | No | QR PNG |
 
 ## Appendix B — Error Codes

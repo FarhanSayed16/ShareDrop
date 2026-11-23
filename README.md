@@ -116,6 +116,13 @@ java -jar target/classdrop-1.0.0.jar
 3. Launch `launch-classdrop.bat`. ClassDrop automatically detects `192.168.137.1` and displays the 6-digit room code and QR code.
 4. Have students open their phone cameras, scan the QR code (or visit `http://192.168.137.1:8080`), enter their name, and join.
 
+### Students on Somaiya Wi-Fi / mobile data (Internet Share)
+
+If phones are **not** on your hotspot, switch Swing Mode to **INTERNET**, set a passphrase, and share the public HTTPS QR/link. Requires host internet uplink + `cloudflared` (or `public.base.url`). Full steps: [docs/INTERNET_SHARE_GUIDE.md](docs/INTERNET_SHARE_GUIDE.md).
+
+Offline strategy & readiness checklist: [docs/OFFLINE_SHARING_PLAN.md](docs/OFFLINE_SHARING_PLAN.md).  
+If Windows blocks joins, run `scripts/allow-firewall-8080.bat` as Administrator.
+
 ---
 
 ## 6. Database Schema (`schema.sql`)
@@ -189,3 +196,23 @@ CREATE TABLE IF NOT EXISTS snippets (
    *Answer*: `ConnectionFactory.isAvailable()` detects database connectivity. If MySQL is offline, all repository operations gracefully fall back to in-memory mode without throwing unhandled exceptions or crashing the GUI.
 4. **How are mobile screens kept awake during file uploads?**
    *Answer*: The web client includes `NoSleep.min.js`, which activates when the student joins the room to prevent mobile OS screen sleep from interrupting transfer streams.
+
+---
+
+## 8. Known Limitations & Enhancement Track
+
+**Shipped in MVP v1.0.0**
+- Offline LAN/Hotspot hub, 6-digit rooms, QR, streaming uploads/downloads, clipboard, Swing host UI, MySQL with in-memory fallback, snapshots, JUnit suite.
+- **Internet Share**: public HTTPS tunnel + mandatory room passphrase for outside-network joins.
+
+**Enhancement Plan C delivered** (see [docs/ENHANCEMENT_PLAN.md](docs/ENHANCEMENT_PLAN.md))
+- Host file share from Swing, `/me` + `/stats` HTTP APIs, remove/kick controls, extension blocklist, HTTP Range resume, ZIP download-all, image preview, SSE updates. **77 automated tests passing.**
+
+**Deferred / out of scope**
+- UDP/mDNS nearby discovery, optional HTTPS/TLS, cloud relay mode.
+
+### Maven note
+Apache Maven 3.8+ must be on `PATH` to rebuild (`mvn clean package`). If Maven is missing, run the prebuilt fat JAR:
+```cmd
+java -jar target\classdrop-1.0.0.jar
+```
