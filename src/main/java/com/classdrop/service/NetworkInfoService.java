@@ -68,6 +68,18 @@ public final class NetworkInfoService {
         return NetworkMode.LAN;
     }
 
+    /** True when Windows Mobile Hotspot adapter IP is present. */
+    public boolean isHotspotAvailable() {
+        return getIPv4Addresses().contains("192.168.137.1");
+    }
+
+    public String resolveHostIp(NetworkMode mode) {
+        if (mode == NetworkMode.HOTSPOT) {
+            return isHotspotAvailable() ? "192.168.137.1" : getPreferredIP();
+        }
+        return getPreferredIP();
+    }
+
     private boolean isVirtualAdapter(String name) {
         return name.contains("virtualbox") ||
                name.contains("vmware") ||

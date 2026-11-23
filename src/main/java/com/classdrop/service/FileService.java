@@ -63,6 +63,8 @@ public final class FileService {
             throw new FileTooLargeException("Declared file size " + declaredSize + " exceeds max cap of " + maxFileSizeBytes + " bytes");
         }
 
+        sanitizer.rejectIfPathTraversal(originalName);
+        sanitizer.rejectIfBlockedExtension(originalName);
         String cleanName = sanitizer.sanitize(originalName);
         Path sessionDir = dataDir.resolve(session.getId());
 
@@ -137,6 +139,8 @@ public final class FileService {
             throws FileTooLargeException, TransferFailedException, SessionExpiredException {
 
         RoomSession session = roomService.current();
+        sanitizer.rejectIfPathTraversal(originalName);
+        sanitizer.rejectIfBlockedExtension(originalName);
         String cleanName = sanitizer.sanitize(originalName);
         Path sessionDir = dataDir.resolve(session.getId());
 
@@ -250,15 +254,78 @@ public final class FileService {
     }
 
     public InputStream openDownloadStream(String id) throws TransferFailedException, SessionExpiredException {
+        return openDownloadStream(id, 0L);
+    }
+
+    public InputStream openDownloadStream(String id, long startOffset)
+            throws TransferFailedException, SessionExpiredException {
         SharedItem item = get(id);
         Path path = item.getStoredPath();
         if (path == null || !Files.exists(path)) {
             throw new TransferFailedException("Stored file missing on disk for id: " + id);
         }
         try {
-            return new FileInputStream(path.toFile());
+            FileInputStream fis = new FileInputStream(path.toFile());
+            if (startOffset > 0) {
+                long skipped = fis.skip(startOffset);
+                if (skipped < startOffset) {
+                    fis.close();
+                    throw new TransferFailedException("Unable to seek to requested Range offset");
+                }
+            }
+            return fis;
         } catch (IOException e) {
             throw new TransferFailedException("Failed opening file stream: " + e.getMessage(), e);
+        }
+    }
+
+    public SharedItem removeFile(String fileId) throws TransferFailedException, SessionExpiredException {
+        RoomSession session = roomService.current();
+        SharedItem item = session.removeItem(fileId);
+        if (item == null) {
+            throw new TransferFailedException("File not found with id: " + fileId);
+        }
+        Path path = item.getStoredPath();
+        if (path != null) {
+            try {
+                Files.deleteIfExists(path);
+            } catch (IOException e) {
+                throw new TransferFailedException("Failed deleting file from disk: " + e.getMessage(), e);
+            }
+        }
+        return item;
+    }
+
+    public Path createZipArchive(Path targetZip) throws TransferFailedException, SessionExpiredException {
+        RoomSession session = roomService.current();
+        List<SharedItem> items = session.getItems();
+        if (items.isEmpty()) {
+            throw new TransferFailedException("No files available to zip");
+        }
+        try {
+            if (targetZip.getParent() != null) {
+                Files.createDirectories(targetZip.getParent());
+            }
+            try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(Files.newOutputStream(targetZip))) {
+                byte[] buf = new byte[Constants.CHUNK_BUFFER_SIZE];
+                for (SharedItem item : items) {
+                    Path path = item.getStoredPath();
+                    if (path == null || !Files.exists(path)) continue;
+                    String entryName = sanitizer.sanitize(item.getOriginalName());
+                    zos.putNextEntry(new java.util.zip.ZipEntry(entryName));
+                    try (InputStream in = Files.newInputStream(path)) {
+                        int read;
+                        while ((read = in.read(buf)) != -1) {
+                            zos.write(buf, 0, read);
+                        }
+                    }
+                    zos.closeEntry();
+                }
+            }
+            return targetZip;
+        } catch (IOException e) {
+            try { Files.deleteIfExists(targetZip); } catch (Exception ignored) {}
+            throw new TransferFailedException("Failed creating ZIP archive: " + e.getMessage(), e);
         }
     }
 

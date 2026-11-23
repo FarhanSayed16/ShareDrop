@@ -15,17 +15,28 @@ public final class CleanupTask implements Runnable {
 
     private final RoomService roomService;
     private final FileService fileService;
+    private final TunnelService tunnelService;
     private final long timeoutMinutes;
     private final long staleDeviceMinutes;
     private ScheduledExecutorService scheduler;
 
     public CleanupTask(RoomService roomService, FileService fileService) {
-        this(roomService, fileService, Constants.SESSION_TIMEOUT_MINUTES, 5);
+        this(roomService, fileService, null, Constants.SESSION_TIMEOUT_MINUTES, 5);
+    }
+
+    public CleanupTask(RoomService roomService, FileService fileService, TunnelService tunnelService) {
+        this(roomService, fileService, tunnelService, Constants.SESSION_TIMEOUT_MINUTES, 5);
     }
 
     public CleanupTask(RoomService roomService, FileService fileService, long timeoutMinutes, long staleDeviceMinutes) {
+        this(roomService, fileService, null, timeoutMinutes, staleDeviceMinutes);
+    }
+
+    public CleanupTask(RoomService roomService, FileService fileService, TunnelService tunnelService,
+                       long timeoutMinutes, long staleDeviceMinutes) {
         this.roomService = Objects.requireNonNull(roomService);
         this.fileService = Objects.requireNonNull(fileService);
+        this.tunnelService = tunnelService;
         this.timeoutMinutes = timeoutMinutes;
         this.staleDeviceMinutes = staleDeviceMinutes;
     }
@@ -58,11 +69,19 @@ public final class CleanupTask implements Runnable {
 
         LocalDateTime now = LocalDateTime.now();
 
-        // 1. Check auto-expiry of active session
+        // 1. Check auto-expiry of active session (shorter for Internet Share)
         if (session.isActive()) {
             Duration duration = Duration.between(session.getStartedAt(), now);
-            if (duration.toMinutes() >= timeoutMinutes) {
-                System.out.println("[ClassDrop-Cleanup] Session timeout reached (" + timeoutMinutes + " mins). Auto-expiring session: " + session.getRoomCode());
+            long limit = session.isInternetShare()
+                ? com.classdrop.util.Config.getInternetSessionTimeoutMinutes()
+                : timeoutMinutes;
+            if (duration.toMinutes() >= limit) {
+                System.out.println("[ClassDrop-Cleanup] Session timeout reached (" + limit + " mins). Auto-expiring session: " + session.getRoomCode());
+                if (tunnelService != null && session.isInternetShare()) {
+                    try {
+                        tunnelService.stopInternetShare();
+                    } catch (Exception ignored) {}
+                }
                 roomService.endSession();
             } else {
                 // 2. Check for stale devices (silent for staleDeviceMinutes)
