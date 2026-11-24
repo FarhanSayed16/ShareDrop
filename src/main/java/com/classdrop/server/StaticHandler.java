@@ -26,6 +26,8 @@ public final class StaticHandler implements HttpHandler {
         String resourceName;
         if ("/".equals(path) || path.startsWith("/r/")) {
             resourceName = "/web/index.html";
+        } else if ("/connect".equals(path)) {
+            resourceName = "/web/connect.html";
         } else if ("/about".equals(path)) {
             resourceName = "/web/about.html";
         } else if ("/privacy".equals(path)) {

@@ -1,5 +1,6 @@
 package com.classdrop.server;
 
+import com.classdrop.service.NetworkInfoService;
 import com.classdrop.service.RoomService;
 import com.classdrop.service.StatsService;
 import com.classdrop.util.Constants;
@@ -17,6 +18,8 @@ public final class ClassDropServer {
     private final com.classdrop.service.QrService qrService;
     private final StatsService statsService;
     private final com.classdrop.service.TunnelService tunnelService;
+    private final NetworkInfoService networkInfoService;
+    private final com.classdrop.service.MdnsService mdnsService;
     private HttpServer server;
     private ExecutorService executor;
     private volatile boolean running = false;
@@ -24,24 +27,33 @@ public final class ClassDropServer {
 
     public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService,
                            com.classdrop.service.ClipboardService clipboardService, com.classdrop.service.QrService qrService) {
-        this(roomService, fileService, clipboardService, qrService, null, null);
+        this(roomService, fileService, clipboardService, qrService, null, null, null);
     }
 
     public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService,
                            com.classdrop.service.ClipboardService clipboardService, com.classdrop.service.QrService qrService,
                            StatsService statsService) {
-        this(roomService, fileService, clipboardService, qrService, statsService, null);
+        this(roomService, fileService, clipboardService, qrService, statsService, null, null);
     }
 
     public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService,
                            com.classdrop.service.ClipboardService clipboardService, com.classdrop.service.QrService qrService,
                            StatsService statsService, com.classdrop.service.TunnelService tunnelService) {
+        this(roomService, fileService, clipboardService, qrService, statsService, tunnelService, null);
+    }
+
+    public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService,
+                           com.classdrop.service.ClipboardService clipboardService, com.classdrop.service.QrService qrService,
+                           StatsService statsService, com.classdrop.service.TunnelService tunnelService,
+                           NetworkInfoService networkInfoService) {
         this.roomService = roomService;
         this.fileService = fileService;
         this.clipboardService = clipboardService;
         this.qrService = qrService;
         this.statsService = statsService;
         this.tunnelService = tunnelService;
+        this.networkInfoService = networkInfoService != null ? networkInfoService : new NetworkInfoService();
+        this.mdnsService = new com.classdrop.service.MdnsService();
     }
 
     public ClassDropServer(RoomService roomService, com.classdrop.service.FileService fileService, com.classdrop.service.ClipboardService clipboardService) {
@@ -64,18 +76,33 @@ public final class ClassDropServer {
         if (running) return;
 
         server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
-        executor = Executors.newFixedThreadPool(Constants.THREAD_POOL_SIZE);
+        // Expanded pool so SSE /events clients do not starve uploads/downloads
+        executor = Executors.newFixedThreadPool(Constants.HTTP_EXECUTOR_SIZE, r -> {
+            Thread t = new Thread(r, "ClassDrop-HTTP");
+            t.setDaemon(true);
+            return t;
+        });
         server.setExecutor(executor);
 
         server.createContext("/health", exchange -> {
-            HandlerSupport.sendJson(exchange, 200, "{\"ok\":true}");
+            HandlerSupport.sendJson(exchange, 200, "{\"ok\":true,\"service\":\"ClassDrop\"}");
         });
+
+        CaptivePortalHandler captive = new CaptivePortalHandler();
+        server.createContext("/generate_204", captive);
+        server.createContext("/gen_204", captive);
+        server.createContext("/connecttest.txt", captive);
+        server.createContext("/ncsi.txt", captive);
+        server.createContext("/hotspot-detect.html", captive);
+        server.createContext("/library/test/success.html", captive);
+        server.createContext("/success.html", captive);
 
         StaticHandler staticHandler = new StaticHandler();
         server.createContext("/", staticHandler);
         server.createContext("/about", staticHandler);
         server.createContext("/privacy", staticHandler);
         server.createContext("/static", staticHandler);
+        server.createContext("/connect", staticHandler);
 
         server.createContext("/r/", new RoomLinkHandler());
         server.createContext("/join", new JoinHandler(roomService));
@@ -87,6 +114,7 @@ public final class ClassDropServer {
         server.createContext("/clipboard", new ClipboardHandler(roomService, clipboardService));
         server.createContext("/qr", new QrHandler(roomService, qrService, port, tunnelService));
         server.createContext("/session-info", new SessionInfoHandler(roomService));
+        server.createContext("/network-status", new NetworkStatusHandler(roomService, networkInfoService, port));
         server.createContext("/me", new MeHandler(roomService));
         server.createContext("/stats", new StatsHandler(roomService, statsService));
         server.createContext("/kick", new KickHandler(roomService));
@@ -96,10 +124,20 @@ public final class ClassDropServer {
         server.start();
         this.boundPort = port;
         this.running = true;
+
+        try {
+            String ip = networkInfoService.getPreferredIP();
+            mdnsService.start(port, ip);
+        } catch (Exception ignored) {
+        }
     }
 
     public synchronized void stop() {
         if (!running) return;
+        try {
+            mdnsService.stop();
+        } catch (Exception ignored) {
+        }
         if (server != null) {
             server.stop(1);
         }
@@ -107,6 +145,10 @@ public final class ClassDropServer {
             executor.shutdownNow();
         }
         this.running = false;
+    }
+
+    public com.classdrop.service.MdnsService getMdnsService() {
+        return mdnsService;
     }
 
     public boolean isRunning() {
