@@ -212,12 +212,18 @@ input[type="text"]:focus, textarea:focus, select:focus {
     background-color: rgba(13, 148, 136, 0.05);
     cursor: pointer;
     margin-bottom: 20px;
-    transition: background-color 0.2s, border-color 0.2s;
+    transition: background-color 0.2s, border-color 0.2s, transform 0.15s ease;
+}
+
+.drop-zone:hover {
+    border-color: #2dd4bf;
+    background-color: rgba(13, 148, 136, 0.12);
 }
 
 .drop-zone.dragover {
-    background-color: rgba(13, 148, 136, 0.18);
+    background-color: rgba(13, 148, 136, 0.22);
     border-color: #5eead4;
+    transform: scale(1.01);
 }
 
 .upload-icon {
@@ -278,6 +284,11 @@ input[type="text"]:focus, textarea:focus, select:focus {
 
 .section-title {
     display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    display: flex;
     justify-content: space-between;
     align-items: center;
     margin: 20px 0 12px;
@@ -301,8 +312,15 @@ input[type="text"]:focus, textarea:focus, select:focus {
     align-items: center;
     background-color: var(--bg-input);
     padding: 12px 16px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    gap: 12px;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.file-item:hover {
+    border-color: rgba(13, 148, 136, 0.55);
+    background-color: rgba(51, 65, 85, 0.9);
 }
 
 .file-item-left {
@@ -341,9 +359,12 @@ input[type="text"]:focus, textarea:focus, select:focus {
 
 .empty-hint {
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     text-align: center;
-    padding: 20px;
+    padding: 28px 18px;
+    border: 1px dashed rgba(148, 163, 184, 0.35);
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.45);
 }
 
 .clipboard-box textarea {
@@ -414,4 +435,70 @@ input[type="text"]:focus, textarea:focus, select:focus {
 
 .footer a:hover {
     text-decoration: underline;
+}
+
+.section-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.room-stats {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    background: rgba(13, 148, 136, 0.12);
+    border: 1px solid rgba(13, 148, 136, 0.35);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.file-preview-thumb {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 6px;
+    background: #0b1120;
+    border: 1px solid var(--border);
+    cursor: pointer;
+}
+
+.preview-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.82);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 16px;
+}
+
+.preview-dialog {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    max-width: min(920px, 100%);
+    max-height: 90vh;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.preview-dialog img {
+    max-width: 100%;
+    max-height: 75vh;
+    border-radius: 8px;
+    object-fit: contain;
+    background: #000;
+}
+
+.file-item-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }

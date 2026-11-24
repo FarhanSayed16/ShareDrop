@@ -4,22 +4,29 @@
     let currentRoomCode = null;
     let deviceName = null;
     let pollInterval = null;
+    let eventSource = null;
 
-    // DOM Elements
     const joinSection = document.getElementById("join-section");
     const roomSection = document.getElementById("room-section");
     const joinForm = document.getElementById("join-form");
     const roomCodeInput = document.getElementById("room-code");
     const displayNameInput = document.getElementById("display-name");
+    const passphraseInput = document.getElementById("room-passphrase");
+    const passphraseGroup = document.getElementById("passphrase-group");
+    const internetBanner = document.getElementById("internet-banner");
+    const offlineBanner = document.getElementById("offline-banner");
     const joinError = document.getElementById("join-error");
     const connectedUser = document.getElementById("connected-user");
     const sessionCodeBadge = document.getElementById("session-code-badge");
+    let sessionRequiresPassphrase = false;
 
     const dropZone = document.getElementById("drop-zone");
     const fileInput = document.getElementById("file-input");
     const uploadProgressList = document.getElementById("upload-progress-list");
     const fileListContainer = document.getElementById("file-list");
     const btnRefreshFiles = document.getElementById("btn-refresh-files");
+    const btnDownloadZip = document.getElementById("btn-download-zip");
+    const roomStats = document.getElementById("room-stats");
 
     const clipboardInput = document.getElementById("clipboard-input");
     const clipboardLang = document.getElementById("clipboard-lang");
@@ -28,6 +35,9 @@
 
     const btnToggleQr = document.getElementById("btn-toggle-qr");
     const qrContainer = document.getElementById("qr-container");
+    const previewModal = document.getElementById("preview-modal");
+    const previewImage = document.getElementById("preview-image");
+    const btnClosePreview = document.getElementById("btn-close-preview");
 
     if (btnToggleQr && qrContainer) {
         btnToggleQr.addEventListener("click", () => {
@@ -35,51 +45,136 @@
         });
     }
 
-    // Auto-detect room code from URL: /r/{code}
+    if (btnClosePreview && previewModal) {
+        btnClosePreview.addEventListener("click", () => {
+            previewModal.style.display = "none";
+            if (previewImage) previewImage.removeAttribute("src");
+        });
+        previewModal.addEventListener("click", (e) => {
+            if (e.target === previewModal) {
+                previewModal.style.display = "none";
+                if (previewImage) previewImage.removeAttribute("src");
+            }
+        });
+    }
+
     const pathParts = window.location.pathname.split("/");
     if (pathParts[1] === "r" && pathParts[2] && pathParts[2].length === 6) {
         roomCodeInput.value = pathParts[2];
         if (displayNameInput) displayNameInput.focus();
     }
 
-    // Check query params: ?code=123456
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has("code")) {
         roomCodeInput.value = urlParams.get("code");
     }
 
-    // Join Form Submission
+    async function refreshSessionInfo() {
+        try {
+            const resp = await fetch("/session-info");
+            if (!resp.ok) return;
+            const info = await resp.json();
+            sessionRequiresPassphrase = !!(info.active && (info.requiresPassphrase || info.internetShare));
+            if (passphraseGroup) {
+                passphraseGroup.style.display = sessionRequiresPassphrase ? "block" : "none";
+            }
+            const isInternet = !!(info.active && info.internetShare);
+            if (internetBanner) {
+                internetBanner.style.display = isInternet ? "block" : "none";
+            }
+            if (offlineBanner) {
+                offlineBanner.style.display = (info.active && !isInternet) ? "block" : "none";
+            }
+            const trouble = document.getElementById("connect-troubleshoot");
+            if (trouble) {
+                trouble.style.display = (info.active && !isInternet) ? "block" : "none";
+            }
+            const offlineConfirmGroup = document.getElementById("offline-confirm-group");
+            if (offlineConfirmGroup) {
+                offlineConfirmGroup.style.display = isInternet ? "none" : "block";
+            }
+            const offlineConfirm = document.getElementById("offline-confirm");
+            if (offlineConfirm && !isInternet) {
+                try {
+                    if (sessionStorage.getItem("classdrop_offline_ok") === "1") {
+                        offlineConfirm.checked = true;
+                    }
+                } catch (_) {}
+            }
+        } catch (_) {
+            // Assume local offline join if session-info fails
+            if (offlineBanner) offlineBanner.style.display = "block";
+            const trouble = document.getElementById("connect-troubleshoot");
+            if (trouble) trouble.style.display = "block";
+        }
+    }
+    refreshSessionInfo();
+
+    // Local path self-check for offline troubleshooting
+    (async function probeNetworkStatus() {
+        try {
+            const resp = await fetch("/network-status");
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (data && data.offlineTip && offlineBanner && offlineBanner.style.display !== "none") {
+                offlineBanner.title = data.offlineTip;
+            }
+        } catch (_) {}
+    })();
+
     joinForm.addEventListener("submit", async function (e) {
         e.preventDefault();
         joinError.style.display = "none";
 
         const code = roomCodeInput.value.trim();
         const name = displayNameInput.value.trim();
+        const passphrase = passphraseInput ? passphraseInput.value : "";
 
         if (code.length !== 6) {
             showError("Room code must be exactly 6 digits.");
             return;
         }
+        if (sessionRequiresPassphrase && (!passphrase || !passphrase.trim())) {
+            showError("This room requires a passphrase from the host.");
+            return;
+        }
+        const offlineConfirm = document.getElementById("offline-confirm");
+        const offlineConfirmGroup = document.getElementById("offline-confirm-group");
+        const needsOfflineConfirm = !offlineConfirmGroup || offlineConfirmGroup.style.display !== "none";
+        if (needsOfflineConfirm && offlineConfirm && !offlineConfirm.checked) {
+            showError("Confirm you are on the teacher hotspot and mobile data is OFF, then try again.");
+            return;
+        }
+        if (offlineConfirm && offlineConfirm.checked) {
+            try { sessionStorage.setItem("classdrop_offline_ok", "1"); } catch (_) {}
+        }
 
         try {
+            const payload = { roomCode: code, deviceName: name };
+            if (passphrase && passphrase.trim()) {
+                payload.passphrase = passphrase.trim();
+            }
             const resp = await fetch("/join", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ roomCode: code, deviceName: name })
+                body: JSON.stringify(payload)
             });
 
             const data = await resp.json();
             if (!resp.ok) {
+                const errCode = data.code || data.error;
+                if (errCode === "INVALID_PASSPHRASE" && passphraseGroup) {
+                    passphraseGroup.style.display = "block";
+                    sessionRequiresPassphrase = true;
+                }
                 showError(data.message || "Failed to join room.");
                 return;
             }
 
-            // Success
             authToken = data.token;
             currentRoomCode = code;
             deviceName = data.deviceName;
 
-            // Keep phone awake during transfers
             try {
                 if (typeof NoSleep !== "undefined") {
                     const noSleep = new NoSleep();
@@ -89,39 +184,50 @@
 
             connectedUser.textContent = `Joined as ${deviceName}`;
             sessionCodeBadge.textContent = `Code: ${currentRoomCode}`;
+            if (data.internetShare && internetBanner) {
+                internetBanner.style.display = "block";
+                if (offlineBanner) offlineBanner.style.display = "none";
+            } else if (offlineBanner) {
+                offlineBanner.style.display = "block";
+            }
 
             joinSection.style.display = "none";
             roomSection.style.display = "block";
 
-            // Start polling for files & clipboard
+            if (btnDownloadZip) {
+                btnDownloadZip.href = `/download-all.zip?token=${encodeURIComponent(authToken)}`;
+                btnDownloadZip.style.display = "inline-flex";
+            }
+
             pollRoomData();
             pollInterval = setInterval(pollRoomData, 3000);
-
-            console.log("ClassDrop: Joined successfully with token", authToken);
+            startEventStream();
+            refreshStats();
         } catch (err) {
-            showError("Could not connect to host. Check Wi-Fi / Hotspot.");
+            showError("Could not reach the host. Join the teacher hotspot Wi‑Fi, turn OFF mobile data, then open http://192.168.137.1:8080 — see /connect");
+            const trouble = document.getElementById("connect-troubleshoot");
+            if (trouble) trouble.style.display = "block";
         }
     });
 
-    // Drag-and-Drop Listeners
     if (dropZone) {
-        ['dragenter', 'dragover'].forEach(eventName => {
+        ["dragenter", "dragover"].forEach(eventName => {
             dropZone.addEventListener(eventName, (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                dropZone.classList.add('dragover');
+                dropZone.classList.add("dragover");
             }, false);
         });
 
-        ['dragleave', 'drop'].forEach(eventName => {
+        ["dragleave", "drop"].forEach(eventName => {
             dropZone.addEventListener(eventName, (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                dropZone.classList.remove('dragover');
+                dropZone.classList.remove("dragover");
             }, false);
         });
 
-        dropZone.addEventListener('drop', (e) => {
+        dropZone.addEventListener("drop", (e) => {
             const files = e.dataTransfer.files;
             if (files && files.length > 0) {
                 handleFilesUpload(files);
@@ -130,17 +236,18 @@
     }
 
     if (fileInput) {
-        fileInput.addEventListener('change', (e) => {
+        fileInput.addEventListener("change", (e) => {
             if (fileInput.files && fileInput.files.length > 0) {
                 handleFilesUpload(fileInput.files);
-                fileInput.value = ""; // Reset
+                fileInput.value = "";
             }
         });
     }
 
     if (btnRefreshFiles) {
-        btnRefreshFiles.addEventListener('click', () => {
+        btnRefreshFiles.addEventListener("click", () => {
             pollRoomData();
+            refreshStats();
         });
     }
 
@@ -190,6 +297,7 @@
                 setTimeout(() => {
                     row.remove();
                     fetchFiles();
+                    refreshStats();
                 }, 1500);
             } else {
                 fillBar.style.backgroundColor = "#ef4444";
@@ -210,7 +318,6 @@
         xhr.send(formData);
     }
 
-    // Shared Clipboard Functions
     if (btnPostClipboard) {
         btnPostClipboard.addEventListener("click", async function () {
             const body = clipboardInput.value.trim();
@@ -246,6 +353,52 @@
         fetchClipboard();
     }
 
+    function startEventStream() {
+        if (!authToken || typeof EventSource === "undefined") return;
+        try {
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource(`/events?token=${encodeURIComponent(authToken)}`);
+            eventSource.addEventListener("files", () => { fetchFiles(); refreshStats(); });
+            eventSource.addEventListener("clipboard", () => fetchClipboard());
+            eventSource.addEventListener("devices", () => refreshStats());
+            eventSource.addEventListener("session", (ev) => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    if (data.active === false) {
+                        showError("Session has ended by the host.");
+                        stopLiveUpdates();
+                    }
+                } catch (_) {}
+            });
+            eventSource.onerror = function () {
+                // Fall back to polling; EventSource will retry automatically
+            };
+        } catch (err) {
+            console.warn("ClassDrop: SSE unavailable, using polling only", err);
+        }
+    }
+
+    function stopLiveUpdates() {
+        if (pollInterval) clearInterval(pollInterval);
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+    }
+
+    async function refreshStats() {
+        if (!authToken || !roomStats) return;
+        try {
+            const resp = await fetch("/stats", {
+                headers: { "X-ClassDrop-Token": authToken }
+            });
+            if (!resp.ok) return;
+            const s = await resp.json();
+            roomStats.textContent =
+                `${s.deviceCount || 0} device(s) · ${s.fileCount || 0} file(s) · ${formatBytes(s.totalBytes || 0)} in room`;
+        } catch (_) {}
+    }
+
     async function fetchFiles() {
         if (!authToken) return;
 
@@ -256,7 +409,7 @@
 
             if (resp.status === 410) {
                 showError("Session has ended by the host.");
-                if (pollInterval) clearInterval(pollInterval);
+                stopLiveUpdates();
                 return;
             }
 
@@ -301,24 +454,40 @@
             const icon = f.kind === "IMAGE" ? "🖼️" : (f.kind === "SNIPPET" ? "💻" : "📄");
             const sizeStr = formatBytes(f.sizeBytes);
             const downloadUrl = `/download/${encodeURIComponent(f.id)}?token=${encodeURIComponent(authToken)}`;
+            const previewUrl = `/preview/${encodeURIComponent(f.id)}?token=${encodeURIComponent(authToken)}`;
+            const thumb = f.previewable
+                ? `<img class="file-preview-thumb" src="${previewUrl}" alt="" loading="lazy" data-preview="${previewUrl}">`
+                : `<span class="file-kind-icon">${icon}</span>`;
 
             html += `
                 <div class="file-item">
                     <div class="file-item-left">
-                        <span class="file-kind-icon">${icon}</span>
+                        ${thumb}
                         <div class="file-details">
                             <span class="file-title">${escapeHtml(f.originalName)}</span>
                             <span class="file-meta">${sizeStr} &bull; ${f.kind}</span>
                         </div>
                     </div>
-                    <a href="${downloadUrl}" class="btn btn-primary btn-small download-btn" download="${escapeHtml(f.originalName)}">
-                        ⬇ Download
-                    </a>
+                    <div class="file-item-actions">
+                        ${f.previewable ? `<button type="button" class="btn btn-secondary btn-small" data-preview="${previewUrl}">Preview</button>` : ""}
+                        <a href="${downloadUrl}" class="btn btn-primary btn-small download-btn" download="${escapeHtml(f.originalName)}">
+                            ⬇ Download
+                        </a>
+                    </div>
                 </div>
             `;
         });
 
         fileListContainer.innerHTML = html;
+        fileListContainer.querySelectorAll("[data-preview]").forEach(el => {
+            el.addEventListener("click", () => openPreview(el.getAttribute("data-preview")));
+        });
+    }
+
+    function openPreview(url) {
+        if (!previewModal || !previewImage || !url) return;
+        previewImage.src = url;
+        previewModal.style.display = "flex";
     }
 
     function renderClipboardList(snippets) {
@@ -358,7 +527,7 @@
     };
 
     function formatBytes(bytes) {
-        if (bytes === 0) return "0 B";
+        if (!bytes || bytes === 0) return "0 B";
         const k = 1024;
         const sizes = ["B", "KB", "MB", "GB"];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
