@@ -26,7 +26,7 @@
 
 - UDP / mDNS nearby discovery
 - Optional HTTPS / TLS
-- Cloud relay (`NetworkMode.RELAY` remains unused)
+- Cloud / Internet Share via `NetworkMode.RELAY` (**shipped** — optional tunnel + passphrase; offline Hotspot remains primary). See `docs/FULL_OFFLINE_CONNECTION_PLAN.md`.
 
 ## Gate rule
 

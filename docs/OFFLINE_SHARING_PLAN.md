@@ -147,18 +147,19 @@ Offline *exists*, but these gaps decide whether people call it “needful”:
 4. **Firewall helper** — `scripts/allow-firewall-8080.bat`
 5. **Tunnel lifecycle fixes** — stop on cancel/timeout/session cleanup; passphrase at session create
 
-### Phase O2 — Offline convenience
+### Phase O2 — Offline convenience ✅
 
-1. Optional `classdrop.local` via mDNS (jmDNS) — still offline.
-2. Firewall helper: generate a PowerShell one-liner / `.bat` to allow TCP 8080.
-3. “Copy hotspot SSID + password + room code” single clipboard pack for teacher.
-4. Session QR poster PDF export for projector (offline generated).
+1. [x] `classdrop.local` via mDNS (jmDNS)
+2. [x] Firewall helper + in-app Fix Firewall (`profile=any`)
+3. [x] Copy hotspot SSID + password + room code invite pack
+4. [x] Session QR poster export + dual Wi‑Fi QR
 
-### Phase O3 — Stretch (only if time)
+### Phase O3 — Stretch
 
-1. USB “drop folder watch” on host for sneakernet intake.
-2. Optional Android Nearby/Bluetooth bridge — **do not replace** browser path.
-3. Self-signed local HTTPS on hotspot (security story) — still offline.
+1. [x] USB drop folder watch (`data/drop-inbox`)
+2. [x] Reverse phone-hotspot mode (detect + docs)
+3. ❌ Bluetooth/Nearby — rejected (keeps zero-install USP)
+4. ❌ Self-signed local HTTPS — rejected (demo trust friction)
 
 ---
 
@@ -232,6 +233,7 @@ Offline sharing is already the right architecture. The win is not inventing a ne
 
 ## Related docs
 
+- [OFFLINE_CONNECTIVITY_HARDENING.md](OFFLINE_CONNECTIVITY_HARDENING.md) — why joins fail + classroom script + hardening  
 - [INTERNET_SHARE_GUIDE.md](INTERNET_SHARE_GUIDE.md) — optional online escape hatch  
 - [USP_AND_CREATIVE_ROADMAP.md](USP_AND_CREATIVE_ROADMAP.md) — USP framing  
 - [LOCAL_RUN_GUIDE.md](LOCAL_RUN_GUIDE.md) — hotspot classroom setup  

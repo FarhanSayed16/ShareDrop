@@ -35,6 +35,13 @@
             <version>3.5.4</version>
         </dependency>
 
+        <!-- Offline mDNS (classdrop.local) — no internet required -->
+        <dependency>
+            <groupId>org.jmdns</groupId>
+            <artifactId>jmdns</artifactId>
+            <version>3.5.9</version>
+        </dependency>
+
         <!-- MySQL Connector/J -->
         <dependency>
             <groupId>com.mysql</groupId>

@@ -111,17 +111,23 @@ java -jar target/classdrop-1.0.0.jar
 
 ## 5. Classroom Setup (Somaiya Campus Isolation Bypass)
 
-1. On host laptop, click the Windows Action Center and enable **Mobile Hotspot**.
-2. Connect mobile devices or other student laptops to the host's Wi-Fi hotspot.
-3. Launch `launch-classdrop.bat`. ClassDrop automatically detects `192.168.137.1` and displays the 6-digit room code and QR code.
-4. Have students open their phone cameras, scan the QR code (or visit `http://192.168.137.1:8080`), enter their name, and join.
+**This is the real offline path.** Students must use the teacher hotspot — staying only on campus Wi‑Fi usually fails (client isolation).
+
+1. Host: enable **Mobile Hotspot** (ClassDrop → **Open Hotspot Settings**, or `scripts/open-mobile-hotspot-settings.bat`).
+2. Host: launch ClassDrop → Mode **HOTSPOT** → wait for **OFFLINE READY**.
+3. Host (once): run `scripts/allow-firewall-8080.bat` as Administrator.
+4. Students: join the teacher hotspot Wi‑Fi, **turn OFF mobile data**, scan QR (or open `http://192.168.137.1:8080`).
+5. If stuck: open `http://192.168.137.1:8080/connect` on the phone.
+
+Use **How Students Connect** / **Copy Invite Pack** in the Swing UI for the exact classroom script.
+
+Full offline plan (complete): [docs/FULL_OFFLINE_CONNECTION_PLAN.md](docs/FULL_OFFLINE_CONNECTION_PLAN.md)  
+Cheat sheet: [docs/OFFLINE_CHEAT_SHEET.md](docs/OFFLINE_CHEAT_SHEET.md) · Airplane viva demo: [docs/VIVA_AIRPLANE_MODE_DEMO.md](docs/VIVA_AIRPLANE_MODE_DEMO.md)  
+Reverse phone-hotspot mode: [docs/PHONE_HOTSPOT_REVERSE_MODE.md](docs/PHONE_HOTSPOT_REVERSE_MODE.md)
 
 ### Students on Somaiya Wi-Fi / mobile data (Internet Share)
 
-If phones are **not** on your hotspot, switch Swing Mode to **INTERNET**, set a passphrase, and share the public HTTPS QR/link. Requires host internet uplink + `cloudflared` (or `public.base.url`). Full steps: [docs/INTERNET_SHARE_GUIDE.md](docs/INTERNET_SHARE_GUIDE.md).
-
-Offline strategy & readiness checklist: [docs/OFFLINE_SHARING_PLAN.md](docs/OFFLINE_SHARING_PLAN.md).  
-If Windows blocks joins, run `scripts/allow-firewall-8080.bat` as Administrator.
+Only if phones **cannot** join the hotspot: Mode **INTERNET** + passphrase. Needs host uplink + `cloudflared`. See [docs/INTERNET_SHARE_GUIDE.md](docs/INTERNET_SHARE_GUIDE.md).
 
 ---
 
