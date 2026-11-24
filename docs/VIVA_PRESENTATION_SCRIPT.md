@@ -139,9 +139,11 @@ This produces stable, realistic transfer speed values without erratic spikes.
 
 - [ ] Host laptop fully charged and plugged into power.
 - [ ] Windows Mobile Hotspot configured (Hotspot Name: `ClassDrop-Hub`, Network Band: 2.4 GHz or 5 GHz).
-- [ ] Windows Firewall rule verified (`netsh advfirewall firewall add rule name="ClassDrop HTTP 8080" dir=in action=allow protocol=TCP localport=8080 profile=private`).
-- [ ] Test student phone connected to hotspot.
-- [ ] Double-click `launch-classdrop.bat` and confirm dashboard opens with `192.168.137.1:8080`.
-- [ ] Phone scans QR code and confirms pre-filled `/r/<6-digit-code>` loads.
+- [ ] Windows Firewall: ClassDrop **Fix Firewall** button / `scripts\allow-firewall-8080.bat` as Admin (`profile=any`).
+- [ ] **Airplane-mode proof:** host uplink off, hotspot ON, banner OFFLINE READY, phone mobile data OFF, file upload works.
+- [ ] Test student phone connected to hotspot (not campus Wi‑Fi).
+- [ ] Double-click `launch-classdrop.bat` and confirm dashboard shows OFFLINE READY + `192.168.137.1:8080`.
+- [ ] Phone scans QR (or opens `http://classdrop.local:8080`) and joins with room code.
+- [ ] Optional: Export Poster PNG for projector.
 - [ ] Test sample files placed on Desktop (`Assignment_Notes.pdf`, `Architecture_Diagram.png`).
 - [ ] Backup screen recording video accessible in a separate folder in case of hardware issues.
