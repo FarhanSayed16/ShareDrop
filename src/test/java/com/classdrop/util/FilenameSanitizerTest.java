@@ -53,4 +53,13 @@ class FilenameSanitizerTest {
         assertThrows(TransferFailedException.class, () -> sanitizer.rejectIfPathTraversal("a/b.txt"));
         assertThrows(TransferFailedException.class, () -> sanitizer.rejectIfPathTraversal("a\\b.txt"));
     }
+
+    @Test
+    void testRejectBlockedExtensions() {
+        assertDoesNotThrow(() -> sanitizer.rejectIfBlockedExtension("notes.pdf"));
+        assertDoesNotThrow(() -> sanitizer.rejectIfBlockedExtension("Main.java"));
+        assertThrows(TransferFailedException.class, () -> sanitizer.rejectIfBlockedExtension("malware.exe"));
+        assertThrows(TransferFailedException.class, () -> sanitizer.rejectIfBlockedExtension("script.bat"));
+        assertThrows(TransferFailedException.class, () -> sanitizer.rejectIfBlockedExtension("payload.ps1"));
+    }
 }
