@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClassDrop — How to Connect (Offline)</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">📡</span>
+                <h1>Connect Offline</h1>
+            </div>
+            <p class="tagline">No internet needed — only the teacher’s hotspot.</p>
+        </header>
+
+        <div class="banner" style="background:rgba(15,158,145,0.15);">
+            If your phone says <strong>No Internet</strong>, that is normal. Stay on the teacher Wi‑Fi.
+        </div>
+
+        <div class="card">
+            <h2>Student steps</h2>
+            <ol class="hint" style="line-height:1.7; padding-left:1.2rem;">
+                <li>Open Wi‑Fi settings and join the <strong>teacher hotspot</strong> (ask for the Wi‑Fi name/password).</li>
+                <li><strong>Turn OFF mobile data</strong> for a minute (stops the phone from using cellular instead of the hotspot).</li>
+                <li>Open this page again, or type the URL shown on the host screen (usually <code>http://192.168.137.1:8080</code>).</li>
+                <li>Enter the <strong>6-digit room code</strong> and your name → Join.</li>
+            </ol>
+            <p id="status-line" class="hint">Checking connection to host…</p>
+            <p id="join-url-line" class="hint"></p>
+            <a id="btn-join-now" class="btn btn-primary" href="/">Open Join Page</a>
+        </div>
+
+        <div class="card">
+            <h2>Still not working?</h2>
+            <ul class="hint" style="line-height:1.7;">
+                <li>Confirm you are on the teacher hotspot — not Somaiya / college Wi‑Fi.</li>
+                <li>Type the IP manually; do not rely on cellular when scanning QR.</li>
+                <li>Ask the host to confirm Mode is <strong>HOTSPOT</strong> and the banner says <strong>OFFLINE READY</strong>.</li>
+                <li>Ask the host to run the firewall allow script once.</li>
+            </ul>
+        </div>
+
+        <footer class="footer">
+            <a href="/">Join room</a> &bull;
+            <a href="/about">About</a>
+        </footer>
+    </div>
+    <script>
+    (async function () {
+        const status = document.getElementById("status-line");
+        const joinLine = document.getElementById("join-url-line");
+        const btn = document.getElementById("btn-join-now");
+        try {
+            const resp = await fetch("/network-status");
+            const data = await resp.json();
+            if (data.ok) {
+                status.textContent = data.hotspotAvailable
+                    ? "Host hotspot detected. You are talking to ClassDrop over the local network."
+                    : "Reached ClassDrop host (LAN). Prefer teacher Mobile Hotspot for campus isolation.";
+                if (data.joinUrl) {
+                    joinLine.innerHTML = "Join URL: <code>" + data.joinUrl + "</code>"
+                        + (data.roomCode ? " · Room code: <strong>" + data.roomCode + "</strong>" : "");
+                    btn.href = data.roomCode ? ("/r/" + data.roomCode) : "/";
+                }
+            }
+        } catch (e) {
+            status.textContent = "Could not reach /network-status. Stay on teacher Wi‑Fi and open http://192.168.137.1:8080";
+        }
+    })();
+    </script>
+</body>
+</html>

@@ -298,4 +298,75 @@ class ClassDropServerIntegrationTest {
         assertEquals((byte) 'N', bytes[2]);
         assertEquals((byte) 'G', bytes[3]);
     }
+
+    @Test
+    void testMeAndStatsEndpoints() throws Exception {
+        String token = joinedDevice.getToken();
+
+        HttpResponse<String> me = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/me"))
+                .header("X-ClassDrop-Token", token)
+                .GET()
+                .build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, me.statusCode());
+        assertTrue(me.body().contains("\"deviceName\":\"Alice\""));
+        assertTrue(me.body().contains(session.getRoomCode()));
+
+        HttpResponse<String> stats = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/stats"))
+                .header("X-ClassDrop-Token", token)
+                .GET()
+                .build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, stats.statusCode());
+        assertTrue(stats.body().contains("\"deviceCount\""));
+        assertTrue(stats.body().contains("\"fileCount\""));
+    }
+
+    @Test
+    void testRangeResumeAndZipDownload() throws Exception {
+        String token = joinedDevice.getToken();
+        String payload = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        Path temp = dataTempDir.resolve("range-sample.txt");
+        Files.writeString(temp, payload);
+        var item = fileService.send(temp);
+
+        HttpResponse<byte[]> rangeResp = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/download/" + item.getId()))
+                .header("X-ClassDrop-Token", token)
+                .header("Range", "bytes=10-19")
+                .GET()
+                .build(), HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(206, rangeResp.statusCode());
+        assertEquals(10, rangeResp.body().length);
+        assertEquals("KLMNOPQRST", new String(rangeResp.body(), StandardCharsets.UTF_8));
+        assertTrue(rangeResp.headers().firstValue("Content-Range").orElse("").startsWith("bytes 10-19/"));
+
+        HttpResponse<byte[]> zipResp = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/download-all.zip"))
+                .header("X-ClassDrop-Token", token)
+                .GET()
+                .build(), HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, zipResp.statusCode());
+        assertTrue(zipResp.headers().firstValue("Content-Type").orElse("").contains("zip"));
+        assertTrue(zipResp.body().length > 20);
+        // ZIP local file header magic
+        assertEquals(0x50, zipResp.body()[0] & 0xff);
+        assertEquals(0x4b, zipResp.body()[1] & 0xff);
+    }
+
+    @Test
+    void testHostRemoveFile() throws Exception {
+        Path temp = dataTempDir.resolve("to-remove.txt");
+        Files.writeString(temp, "delete-me");
+        var item = fileService.send(temp);
+
+        HttpResponse<String> removeResp = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/files/" + item.getId()))
+                .header("X-ClassDrop-Host-Token", session.getHostToken())
+                .method("DELETE", HttpRequest.BodyPublishers.noBody())
+                .build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, removeResp.statusCode());
+        assertTrue(removeResp.body().contains("\"ok\":true"));
+        assertThrows(Exception.class, () -> fileService.get(item.getId()));
+    }
 }
