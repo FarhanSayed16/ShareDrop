@@ -4,6 +4,7 @@ import com.classdrop.model.*;
 import com.classdrop.service.*;
 import com.classdrop.util.ShareLinks;
 import com.classdrop.util.ShareUrlBuilder;
+import com.classdrop.util.WifiQrPayload;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -15,6 +16,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -48,7 +50,14 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
     private JLabel devicesEmptyHint;
     private JLabel lblInternetBanner;
     private JLabel lblOfflineReady;
+    private JLabel lblIpList;
     private JPasswordField txtPassphrase;
+    private JTextField txtHotspotSsid;
+    private JPasswordField txtHotspotPassword;
+    private JLabel lblQrNotReady;
+    private JLabel lblWifiQrImage;
+    private DropFolderWatcher dropFolderWatcher;
+    private boolean firewallPromptShown = false;
 
     private DeviceTableModel deviceTableModel;
     private TransferTableModel transferTableModel;
@@ -63,6 +72,7 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
     private DropZonePanel dropZone;
     /** Prevents combo setSelectedItem from recursively creating new sessions. */
     private boolean syncingUi = false;
+    private boolean hotspotHealPrompted = false;
     private JPanel transfersCards;
     private JPanel devicesCards;
 
@@ -97,6 +107,36 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         roomService.addListener(this);
         initUi();
         refreshDisplayFromSession();
+        // Re-check hotspot adapter while the window is open (host may toggle Mobile Hotspot)
+        javax.swing.Timer readinessTimer = new javax.swing.Timer(4000, e -> {
+            updateOfflineReadiness();
+            maybeHealHotspotSession();
+        });
+        readinessTimer.setRepeats(true);
+        readinessTimer.start();
+    }
+
+    private void maybeHealHotspotSession() {
+        RoomSession s = roomService.getCurrentSessionOrNull();
+        if (hotspotHealPrompted || s == null || !s.isActive()) return;
+        if (s.getMode() != NetworkMode.HOTSPOT) return;
+        String hotspotIp = networkInfo.getHotspotIpOrNull();
+        if (hotspotIp == null) return;
+        if (hotspotIp.equals(s.getHostIp())) return;
+
+        hotspotHealPrompted = true;
+        int opt = JOptionPane.showConfirmDialog(this,
+            "Mobile Hotspot is now ON, but this session still uses " + s.getHostIp() + ".\n"
+                + "Switch the room to " + hotspotIp + " so student QR/links work?\n"
+                + "(Creates a new room code — students must rejoin.)",
+            "Hotspot Detected",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.QUESTION_MESSAGE);
+        if (opt == JOptionPane.YES_OPTION) {
+            String pass = s.requiresPassphrase() ? s.getPassphrase() : null;
+            log("Hotspot heal — moving session to " + hotspotIp);
+            roomService.createSession(NetworkMode.HOTSPOT, hotspotIp, pass);
+        }
     }
 
     private void initUi() {
@@ -291,6 +331,66 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         actions.add(btnEmail);
         urlRow.add(actions, BorderLayout.EAST);
         left.add(urlRow);
+        left.add(Box.createVerticalStrut(8));
+
+        JPanel wifiRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        wifiRow.setOpaque(false);
+        wifiRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel ssidLbl = new JLabel("Hotspot SSID");
+        ssidLbl.setForeground(UiTheme.MUTED);
+        ssidLbl.setFont(UiTheme.UI_SMALL_BOLD);
+        wifiRow.add(ssidLbl);
+        txtHotspotSsid = new JTextField("ClassDrop-Hub", 10);
+        txtHotspotSsid.setToolTipText("Type your Windows Mobile Hotspot name for the invite pack / Wi‑Fi QR");
+        txtHotspotSsid.getDocument().addDocumentListener(simpleDocListener(this::refreshWifiQr));
+        wifiRow.add(txtHotspotSsid);
+        JLabel pwdLbl = new JLabel("Wi‑Fi Password");
+        pwdLbl.setForeground(UiTheme.MUTED);
+        pwdLbl.setFont(UiTheme.UI_SMALL_BOLD);
+        wifiRow.add(pwdLbl);
+        txtHotspotPassword = new JPasswordField(8);
+        txtHotspotPassword.setToolTipText("Optional — invite pack + Wi‑Fi QR for students to join hotspot");
+        txtHotspotPassword.getDocument().addDocumentListener(simpleDocListener(this::refreshWifiQr));
+        wifiRow.add(txtHotspotPassword);
+        left.add(wifiRow);
+        left.add(Box.createVerticalStrut(6));
+
+        lblIpList = new JLabel(" ");
+        lblIpList.setForeground(UiTheme.MUTED);
+        lblIpList.setFont(UiTheme.MONO);
+        lblIpList.setAlignmentX(Component.LEFT_ALIGNMENT);
+        left.add(lblIpList);
+        left.add(Box.createVerticalStrut(8));
+
+        JPanel offlineActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        offlineActions.setOpaque(false);
+        offlineActions.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JButton btnConnectGuide = pillButton("How Students Connect", UiTheme.ACCENT);
+        btnConnectGuide.setToolTipText("Offline classroom steps — hotspot + QR + mobile data tip");
+        btnConnectGuide.addActionListener(e -> showStudentConnectGuide());
+        offlineActions.add(btnConnectGuide);
+        JButton btnStartHotspot = pillButton("Start Hotspot", UiTheme.OK);
+        btnStartHotspot.setToolTipText("Try to enable Windows Mobile Hotspot automatically");
+        btnStartHotspot.addActionListener(e -> startMobileHotspotScript());
+        offlineActions.add(btnStartHotspot);
+        JButton btnHotspotSettings = pillButton("Open Hotspot Settings", UiTheme.INFO);
+        btnHotspotSettings.addActionListener(e -> openWindowsHotspotSettings());
+        offlineActions.add(btnHotspotSettings);
+        JButton btnFirewall = pillButton("Fix Firewall", UiTheme.WARN);
+        btnFirewall.setToolTipText("Allow TCP " + port + " on all profiles (run as Administrator)");
+        btnFirewall.addActionListener(e -> runFirewallHelper());
+        offlineActions.add(btnFirewall);
+        JButton btnCopyInvite = pillButton("Copy Invite Pack", UiTheme.SURFACE_ALT);
+        btnCopyInvite.addActionListener(e -> copyOfflineInvitePack());
+        offlineActions.add(btnCopyInvite);
+        JButton btnPoster = pillButton("Export Poster", new Color(99, 102, 241));
+        btnPoster.addActionListener(e -> exportProjectorPoster());
+        offlineActions.add(btnPoster);
+        JButton btnDropFolder = pillButton("USB Drop Folder", new Color(100, 116, 139));
+        btnDropFolder.setToolTipText("Watch data/drop-inbox — copy files from a USB stick to share offline");
+        btnDropFolder.addActionListener(e -> toggleDropFolderWatcher());
+        offlineActions.add(btnDropFolder);
+        left.add(offlineActions);
 
         hero.add(left, BorderLayout.CENTER);
 
@@ -298,20 +398,58 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
         qrCard.setOpaque(true);
         qrCard.setBackground(Color.WHITE);
         qrCard.setBorder(new EmptyBorder(10, 10, 10, 10));
+        JPanel qrStack = new JPanel();
+        qrStack.setLayout(new OverlayLayout(qrStack));
+        qrStack.setOpaque(false);
+        qrStack.setPreferredSize(new Dimension(132, 132));
         lblQrImage = new JLabel();
         lblQrImage.setPreferredSize(new Dimension(132, 132));
         lblQrImage.setHorizontalAlignment(SwingConstants.CENTER);
+        lblQrImage.setAlignmentX(0.5f);
+        lblQrImage.setAlignmentY(0.5f);
         lblQrImage.setToolTipText("Students scan this QR to join");
-        qrCard.add(lblQrImage, BorderLayout.CENTER);
-        JLabel qrHint = new JLabel("Scan to join", SwingConstants.CENTER);
+        lblQrNotReady = new JLabel("<html><center><b>NOT READY</b><br>Turn on<br>Mobile Hotspot</center></html>", SwingConstants.CENTER);
+        lblQrNotReady.setOpaque(true);
+        lblQrNotReady.setBackground(new Color(239, 68, 68, 220));
+        lblQrNotReady.setForeground(Color.WHITE);
+        lblQrNotReady.setFont(UiTheme.UI_SMALL_BOLD);
+        lblQrNotReady.setPreferredSize(new Dimension(132, 132));
+        lblQrNotReady.setAlignmentX(0.5f);
+        lblQrNotReady.setAlignmentY(0.5f);
+        lblQrNotReady.setVisible(false);
+        qrStack.add(lblQrNotReady);
+        qrStack.add(lblQrImage);
+        qrCard.add(qrStack, BorderLayout.CENTER);
+        JLabel qrHint = new JLabel("1. Room join", SwingConstants.CENTER);
         qrHint.setForeground(new Color(71, 85, 105));
         qrHint.setFont(UiTheme.UI_SMALL_BOLD);
         qrCard.add(qrHint, BorderLayout.SOUTH);
 
-        JPanel qrWrap = new JPanel(new BorderLayout());
+        JPanel wifiQrCard = new JPanel(new BorderLayout(0, 8));
+        wifiQrCard.setOpaque(true);
+        wifiQrCard.setBackground(Color.WHITE);
+        wifiQrCard.setBorder(new EmptyBorder(10, 10, 10, 10));
+        lblWifiQrImage = new JLabel("Enter SSID", SwingConstants.CENTER);
+        lblWifiQrImage.setPreferredSize(new Dimension(132, 132));
+        lblWifiQrImage.setForeground(new Color(100, 116, 139));
+        lblWifiQrImage.setFont(UiTheme.UI_SMALL);
+        lblWifiQrImage.setToolTipText("Wi‑Fi QR — students scan to join the hotspot first");
+        wifiQrCard.add(lblWifiQrImage, BorderLayout.CENTER);
+        JLabel wifiHint = new JLabel("2. Join Wi‑Fi", SwingConstants.CENTER);
+        wifiHint.setForeground(new Color(71, 85, 105));
+        wifiHint.setFont(UiTheme.UI_SMALL_BOLD);
+        wifiQrCard.add(wifiHint, BorderLayout.SOUTH);
+
+        JPanel qrWrap = new JPanel();
         qrWrap.setOpaque(false);
-        qrWrap.add(qrCard, BorderLayout.NORTH);
+        qrWrap.setLayout(new BoxLayout(qrWrap, BoxLayout.Y_AXIS));
+        qrCard.setAlignmentX(Component.CENTER_ALIGNMENT);
+        wifiQrCard.setAlignmentX(Component.CENTER_ALIGNMENT);
+        qrWrap.add(qrCard);
+        qrWrap.add(Box.createVerticalStrut(10));
+        qrWrap.add(wifiQrCard);
         hero.add(qrWrap, BorderLayout.EAST);
+        refreshWifiQr();
 
         header.add(hero, BorderLayout.CENTER);
         return header;
@@ -556,16 +694,24 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
 
             String publicBase = tunnelService != null ? tunnelService.getPublicBaseUrl() : null;
             String shareUrl = ShareUrlBuilder.shareUrlForSession(session, port, publicBase);
+            boolean hotspotModeNotReady = session.getMode() == NetworkMode.HOTSPOT && !networkInfo.isHotspotAvailable();
             if (shareUrl == null && session.isInternetShare()) {
                 txtShareUrl.setText("Internet Share waiting for public HTTPS URL…");
                 lblQrImage.setIcon(null);
+                setQrReadyOverlay(true, "Waiting for public HTTPS URL");
+            } else if (hotspotModeNotReady) {
+                txtShareUrl.setText("NOT READY — turn on Mobile Hotspot (expected " + NetworkInfoService.WINDOWS_HOTSPOT_IP + ")");
+                lblQrImage.setIcon(null);
+                setQrReadyOverlay(true, "Turn on Mobile Hotspot");
             } else {
                 txtShareUrl.setText(shareUrl != null ? shareUrl : "No share URL");
                 try {
                     BufferedImage qr = qrService.generateQr(shareUrl, 110);
                     lblQrImage.setIcon(new ImageIcon(qr));
+                    setQrReadyOverlay(false, null);
                 } catch (Exception e) {
                     lblQrImage.setIcon(null);
+                    setQrReadyOverlay(true, "QR error");
                 }
             }
             deviceTableModel.setDevices(session.getDevices());
@@ -592,6 +738,7 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
             lblRoomCode.setText("------");
             txtShareUrl.setText("No active session");
             lblQrImage.setIcon(null);
+            setQrReadyOverlay(true, "No session");
             btnEndSession.setEnabled(false);
             if (lblHostToken != null) {
                 lblHostToken.setText("Host token: -");
@@ -601,8 +748,79 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
             log("Session ended or not started.");
         }
         updateOfflineReadiness();
+        updateIpListLabel();
+        refreshWifiQr();
+        maybePromptFirewallOnce(session);
         updateStatsDisplay();
         updateEmptyStates();
+    }
+
+    private javax.swing.event.DocumentListener simpleDocListener(Runnable action) {
+        return new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { action.run(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { action.run(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { action.run(); }
+        };
+    }
+
+    private void refreshWifiQr() {
+        if (lblWifiQrImage == null || txtHotspotSsid == null) return;
+        String ssid = txtHotspotSsid.getText().trim();
+        String pass = txtHotspotPassword != null ? new String(txtHotspotPassword.getPassword()) : "";
+        if (ssid.isEmpty()) {
+            lblWifiQrImage.setIcon(null);
+            lblWifiQrImage.setText("Enter SSID");
+            return;
+        }
+        String payload = pass.isEmpty()
+            ? WifiQrPayload.build("nopass", ssid, null, false)
+            : WifiQrPayload.wpa(ssid, pass);
+        try {
+            BufferedImage qr = qrService.generateQr(payload, 110);
+            lblWifiQrImage.setIcon(new ImageIcon(qr));
+            lblWifiQrImage.setText("");
+        } catch (Exception ex) {
+            lblWifiQrImage.setIcon(null);
+            lblWifiQrImage.setText("Wi‑Fi QR error");
+        }
+    }
+
+    private void maybePromptFirewallOnce(RoomSession session) {
+        if (firewallPromptShown) return;
+        if (session == null || !session.isActive()) return;
+        if (session.getMode() != NetworkMode.HOTSPOT) return;
+        if (!networkInfo.isHotspotAvailable()) return;
+        firewallPromptShown = true;
+        int opt = JOptionPane.showConfirmDialog(this,
+            "First Hotspot session tip:\n\n"
+                + "Allow Windows Firewall TCP " + port + " now?\n"
+                + "(Hotspot networks are often Public — without this, phones time out.)",
+            "Fix Firewall?",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.QUESTION_MESSAGE);
+        if (opt == JOptionPane.YES_OPTION) {
+            runFirewallHelper();
+        }
+    }
+
+    private void setQrReadyOverlay(boolean show, String message) {
+        if (lblQrNotReady == null) return;
+        if (message != null && !message.isBlank()) {
+            lblQrNotReady.setText("<html><center><b>NOT READY</b><br>" + message.replace("\n", "<br>") + "</center></html>");
+        }
+        lblQrNotReady.setVisible(show);
+    }
+
+    private void updateIpListLabel() {
+        if (lblIpList == null) return;
+        List<String> lines = networkInfo.getInterfaceSummaries();
+        if (lines.isEmpty()) {
+            lblIpList.setText("Local IPs: (none detected)");
+            return;
+        }
+        String joined = String.join("  |  ", lines.size() > 3 ? lines.subList(0, 3) : lines);
+        lblIpList.setText("Local IPs: " + joined);
+        lblIpList.setToolTipText(String.join("\n", lines));
     }
 
     private void updateInternetBanner(RoomSession session) {
@@ -638,14 +856,259 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
             return;
         }
         if (hotspotUp) {
+            String hsIp = networkInfo.getHotspotIpOrNull() != null ? networkInfo.getHotspotIpOrNull() : NetworkInfoService.WINDOWS_HOTSPOT_IP;
             lblOfflineReady.setBackground(new Color(34, 197, 94, 35));
             lblOfflineReady.setForeground(new Color(187, 247, 208));
-            lblOfflineReady.setText("  OFFLINE READY — Hotspot IP 192.168.137.1 found. Students: join this Wi-Fi, then scan QR. (No internet needed)");
+            lblOfflineReady.setText("  OFFLINE READY — Host hotspot " + hsIp + " UP. Students: scan Wi‑Fi QR → then Room QR. Data OFF. http://classdrop.local:" + port);
+            if (session != null && session.getMode() == NetworkMode.HOTSPOT) {
+                setQrReadyOverlay(false, null);
+            }
+        } else if (networkInfo.isOnPhoneHotspot()) {
+            String ip = networkInfo.getPreferredIP();
+            lblOfflineReady.setBackground(new Color(59, 130, 246, 40));
+            lblOfflineReady.setForeground(new Color(191, 219, 254));
+            lblOfflineReady.setText("  REVERSE OFFLINE — PC is on a phone hotspot (" + ip
+                + "). Set Mode=LAN. Students open http://" + ip + ":" + port + " (meter phone data if uplink shared).");
+            setQrReadyOverlay(false, null);
         } else {
-            lblOfflineReady.setBackground(new Color(245, 158, 11, 40));
-            lblOfflineReady.setForeground(new Color(253, 230, 138));
-            lblOfflineReady.setText("  Offline tip — turn on Windows Mobile Hotspot for best campus isolation bypass. LAN works if AP allows client traffic. Allow TCP "
-                + port + " in firewall.");
+            lblOfflineReady.setBackground(new Color(239, 68, 68, 45));
+            lblOfflineReady.setForeground(new Color(254, 202, 202));
+            lblOfflineReady.setText("  NOT OFFLINE-READY — Click Start Hotspot / Open Settings + Fix Firewall (TCP "
+                + port + "). QR blocked until hotspot is ON.");
+            if (session == null || session.getMode() == NetworkMode.HOTSPOT) {
+                setQrReadyOverlay(true, "Turn on Mobile Hotspot");
+            }
+        }
+        updateIpListLabel();
+    }
+
+    private void startMobileHotspotScript() {
+        Path script = Path.of("scripts", "enable-mobile-hotspot.ps1");
+        if (!Files.exists(script)) {
+            script = Path.of(System.getProperty("user.dir", "."), "scripts", "enable-mobile-hotspot.ps1");
+        }
+        try {
+            if (Files.exists(script)) {
+                new ProcessBuilder(
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", script.toAbsolutePath().toString()
+                ).start();
+                log("Launched enable-mobile-hotspot.ps1");
+                JOptionPane.showMessageDialog(this,
+                    "Hotspot start script launched.\n"
+                        + "Wait a few seconds, then look for OFFLINE READY.\n"
+                        + "If it fails, use Open Hotspot Settings.",
+                    "Start Hotspot",
+                    JOptionPane.INFORMATION_MESSAGE);
+                javax.swing.Timer t = new javax.swing.Timer(2500, e -> updateOfflineReadiness());
+                t.setRepeats(false);
+                t.start();
+            } else {
+                openWindowsHotspotSettings();
+            }
+        } catch (Exception ex) {
+            openWindowsHotspotSettings();
+            JOptionPane.showMessageDialog(this, "Auto-start failed: " + ex.getMessage()
+                    + "\nOpened settings instead.", "Start Hotspot", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void toggleDropFolderWatcher() {
+        try {
+            if (dropFolderWatcher != null && dropFolderWatcher.isRunning()) {
+                dropFolderWatcher.stop();
+                dropFolderWatcher = null;
+                log("USB drop folder watcher stopped");
+                JOptionPane.showMessageDialog(this, "Drop folder watcher stopped.", "USB Drop Folder", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            Path folder = Path.of("data", "drop-inbox");
+            Files.createDirectories(folder);
+            dropFolderWatcher = new DropFolderWatcher(folder, path -> SwingUtilities.invokeLater(() -> ingestDroppedFile(path)));
+            dropFolderWatcher.start();
+            log("Watching USB drop folder: " + folder.toAbsolutePath());
+            JOptionPane.showMessageDialog(this,
+                "Watching:\n" + folder.toAbsolutePath() + "\n\n"
+                    + "Copy files from a USB stick into this folder.\n"
+                    + "They are shared into the active ClassDrop room automatically.\n"
+                    + "(Sneakernet / zero-radio assist — still fully offline.)",
+                "USB Drop Folder ON",
+                JOptionPane.INFORMATION_MESSAGE);
+            try {
+                Desktop.getDesktop().open(folder.toFile());
+            } catch (Exception ignored) {
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Could not start watcher: " + ex.getMessage(),
+                "USB Drop Folder", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void ingestDroppedFile(Path path) {
+        RoomSession session = roomService.getCurrentSessionOrNull();
+        if (session == null || !session.isActive()) {
+            log("Drop ignored (no session): " + path.getFileName());
+            return;
+        }
+        try {
+            fileService.send(path);
+            log("Drop-folder shared: " + path.getFileName());
+            Toolkit.getDefaultToolkit().beep();
+        } catch (Exception ex) {
+            log("Drop-folder failed: " + path.getFileName() + " — " + ex.getMessage());
+        }
+    }
+
+    private void showStudentConnectGuide() {
+        boolean hotspotUp = networkInfo.isHotspotAvailable();
+        RoomSession session = roomService.getCurrentSessionOrNull();
+        String code = (session != null && session.isActive()) ? session.getRoomCode() : "------";
+        String url = txtShareUrl != null ? txtShareUrl.getText() : ("http://192.168.137.1:" + port);
+        String msg =
+            "OFFLINE CLASSROOM CONNECT (no internet required)\n\n"
+                + "HOST\n"
+                + "1. Turn ON Windows Mobile Hotspot (button: Open Hotspot Settings).\n"
+                + "2. Set Mode to HOTSPOT. Wait until banner says OFFLINE READY.\n"
+                + "3. Once: run scripts\\allow-firewall-8080.bat as Administrator.\n"
+                + "4. Keep ClassDrop window open.\n\n"
+                + "STUDENTS\n"
+                + "1. Join the teacher hotspot Wi‑Fi (not Somaiya / campus Wi‑Fi).\n"
+                + "2. Ignore “No Internet” on that Wi‑Fi — it is normal.\n"
+                + "3. Turn OFF mobile data (critical — stops cellular from stealing the link).\n"
+                + "4. Scan the QR or open:\n   " + url + "\n"
+                + "5. Enter room code " + code + " and name → Join.\n\n"
+                + "Hotspot adapter now: " + (hotspotUp ? "DETECTED (192.168.137.1)" : "NOT DETECTED — turn hotspot ON") + "\n"
+                + "Help page on phones: http://192.168.137.1:" + port + "/connect";
+        JTextArea area = new JTextArea(msg);
+        area.setEditable(false);
+        area.setFont(UiTheme.UI_SMALL);
+        area.setBackground(UiTheme.SURFACE);
+        area.setForeground(UiTheme.TEXT);
+        area.setCaretPosition(0);
+        JScrollPane scroll = new JScrollPane(area);
+        scroll.setPreferredSize(new Dimension(560, 360));
+        Object[] options = {"Copy Invite Pack", "Open Hotspot Settings", "Close"};
+        int choice = JOptionPane.showOptionDialog(
+            this, scroll, "How Students Connect (Offline)",
+            JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
+            null, options, options[2]);
+        if (choice == 0) copyOfflineInvitePack();
+        if (choice == 1) openWindowsHotspotSettings();
+    }
+
+    private void openWindowsHotspotSettings() {
+        try {
+            new ProcessBuilder("cmd", "/c", "start", "ms-settings:network-mobilehotspot").start();
+            log("Opened Windows Mobile Hotspot settings");
+            JOptionPane.showMessageDialog(this,
+                "Mobile Hotspot settings opened.\n\n"
+                    + "1. Turn Mobile Hotspot ON\n"
+                    + "2. Note the network name & password for students\n"
+                    + "3. Return here — banner should become OFFLINE READY\n"
+                    + "4. Set Mode to HOTSPOT",
+                "Hotspot Settings",
+                JOptionPane.INFORMATION_MESSAGE);
+            updateOfflineReadiness();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this,
+                "Could not open settings automatically.\n"
+                    + "Open Settings → Network & Internet → Mobile hotspot manually.\n\n"
+                    + ex.getMessage(),
+                "Hotspot Settings",
+                JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private void copyOfflineInvitePack() {
+        RoomSession session = roomService.getCurrentSessionOrNull();
+        String code = (session != null && session.isActive()) ? session.getRoomCode() : "------";
+        String hostIp = networkInfo.getHotspotIpOrNull();
+        if (hostIp == null) {
+            hostIp = (session != null && session.isActive()) ? session.getHostIp() : NetworkInfoService.WINDOWS_HOTSPOT_IP;
+        }
+        String url = ShareUrlBuilder.localRoomUrl(hostIp, port, code);
+        String ssid = txtHotspotSsid != null ? txtHotspotSsid.getText().trim() : "";
+        String wifiPass = txtHotspotPassword != null ? new String(txtHotspotPassword.getPassword()) : "";
+        StringBuilder pack = new StringBuilder();
+        pack.append("ClassDrop offline invite (no internet required)\n");
+        if (!ssid.isEmpty()) {
+            pack.append("Wi-Fi SSID: ").append(ssid).append("\n");
+            if (!wifiPass.isEmpty()) {
+                pack.append("Wi-Fi Password: ").append(wifiPass).append("\n");
+            }
+        } else {
+            pack.append("1) Join teacher hotspot Wi-Fi\n");
+        }
+        pack.append("2) Turn OFF mobile data\n");
+        pack.append("3) Open ").append(url).append("\n");
+        pack.append("   or http://classdrop.local:").append(port).append("/r/").append(code).append("\n");
+        pack.append("4) Room code: ").append(code).append("\n");
+        pack.append("Help: http://").append(hostIp).append(":").append(port).append("/connect\n");
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(pack.toString()), null);
+        log("Copied offline invite pack");
+        JOptionPane.showMessageDialog(this, "Invite pack copied to clipboard.\nPaste on projector / board / chat.",
+            "Copied", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void runFirewallHelper() {
+        Path script = Path.of("scripts", "allow-firewall-8080.bat");
+        if (!Files.exists(script)) {
+            script = Path.of(System.getProperty("user.dir", "."), "scripts", "allow-firewall-8080.bat");
+        }
+        String cmd = "netsh advfirewall firewall add rule name=\"ClassDrop HTTP " + port
+            + "\" dir=in action=allow protocol=TCP localport=" + port + " profile=any";
+        int opt = JOptionPane.showConfirmDialog(this,
+            "Windows must allow inbound TCP " + port + " (Hotspot is often Public).\n\n"
+                + "Click Yes to launch the helper script (approve UAC / Run as Administrator).\n\n"
+                + "Manual command:\n" + cmd,
+            "Fix Firewall",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE);
+        if (opt != JOptionPane.YES_OPTION) return;
+        try {
+            if (Files.exists(script)) {
+                new ProcessBuilder("cmd", "/c", "start", "\"ClassDrop Firewall\"", script.toAbsolutePath().toString()).start();
+            } else {
+                new ProcessBuilder("cmd", "/c", "start", "powershell", "-NoExit", "-Command", cmd).start();
+            }
+            log("Launched firewall helper");
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Could not launch helper:\n" + ex.getMessage()
+                    + "\n\nRun this as Admin:\n" + cmd,
+                "Firewall", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void exportProjectorPoster() {
+        RoomSession session = roomService.getCurrentSessionOrNull();
+        if (session == null || !session.isActive()) {
+            JOptionPane.showMessageDialog(this, "Start a session first.", "Export Poster", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (session.getMode() == NetworkMode.HOTSPOT && !networkInfo.isHotspotAvailable()) {
+            JOptionPane.showMessageDialog(this, "Turn on Mobile Hotspot first (OFFLINE READY).", "Export Poster", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        try {
+            String publicBase = tunnelService != null ? tunnelService.getPublicBaseUrl() : null;
+            String shareUrl = ShareUrlBuilder.shareUrlForSession(session, port, publicBase);
+            if (shareUrl == null) {
+                shareUrl = ShareUrlBuilder.localRoomUrl(session.getHostIp(), port, session.getRoomCode());
+            }
+            String ssid = txtHotspotSsid != null ? txtHotspotSsid.getText().trim() : "";
+            Path out = Path.of("data", "classdrop-poster-" + session.getRoomCode() + ".png");
+            new PosterExportService(qrService).exportPng(out, session.getRoomCode(), shareUrl, ssid,
+                "Turn OFF mobile data. Stay on hotspot even if phone says No Internet. Help: /connect");
+            log("Exported poster: " + out.toAbsolutePath());
+            JOptionPane.showMessageDialog(this,
+                "Poster saved:\n" + out.toAbsolutePath() + "\n\nOpen it on the projector.",
+                "Poster Exported", JOptionPane.INFORMATION_MESSAGE);
+            try {
+                Desktop.getDesktop().open(out.toFile());
+            } catch (Exception ignored) {
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Export failed: " + ex.getMessage(), "Export Poster", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -888,6 +1351,9 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
             JOptionPane.YES_NO_OPTION
         );
         if (opt == JOptionPane.YES_OPTION) {
+            if (dropFolderWatcher != null) {
+                dropFolderWatcher.stop();
+            }
             if (tunnelService != null) {
                 tunnelService.stopInternetShare();
             }
@@ -1078,7 +1544,13 @@ public final class ClassDropFrame extends JFrame implements SessionListener {
             deviceTableModel.addDevice(device);
             updateStatsDisplay();
             updateEmptyStates();
-            log("Device joined: " + device.getDisplayName() + " (" + device.getIpAddress() + ")");
+            String ip = device.getIpAddress() != null ? device.getIpAddress() : "";
+            boolean remote = !ip.isBlank() && !ip.startsWith("127.") && !ip.equals("::1");
+            log((remote ? "★ Student path LIVE — " : "Device joined: ")
+                + device.getDisplayName() + " (" + ip + ")");
+            if (remote) {
+                Toolkit.getDefaultToolkit().beep();
+            }
         });
     }
 

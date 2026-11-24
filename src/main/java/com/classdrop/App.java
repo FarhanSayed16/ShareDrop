@@ -70,7 +70,7 @@ public final class App {
             }
         }
 
-        ClassDropServer server = new ClassDropServer(roomService, fileService, clipboardService, qrService, statsService, tunnelService);
+        ClassDropServer server = new ClassDropServer(roomService, fileService, clipboardService, qrService, statsService, tunnelService, networkInfo);
 
         try {
             server.start(port);
@@ -86,6 +86,7 @@ public final class App {
             System.out.println("  Host Token:" + session.getHostToken());
             System.out.println("  Share URL: " + shareUrl);
             System.out.println("  Tip:       Prefer HOTSPOT offline (no internet). INTERNET mode is optional.");
+            System.out.println("  mDNS:      Try http://classdrop.local:" + port + " on the same hotspot/LAN");
             System.out.println("--------------------------------------------------");
             System.out.println("  WhatsApp:  " + whatsapp);
             System.out.println("  Email:     " + email);

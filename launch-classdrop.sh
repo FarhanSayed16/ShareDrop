@@ -15,7 +15,10 @@ fi
 
 if [ ! -f "target/classdrop-1.0.0.jar" ]; then
     echo "[INFO] target/classdrop-1.0.0.jar not found. Building project with Maven..."
-    mvn clean package -DskipTests
+    MVN="mvn"
+    if [ -x ".tools/apache-maven-3.9.6/bin/mvn" ]; then MVN=".tools/apache-maven-3.9.6/bin/mvn"; fi
+    if [ -x ".tools/apache-maven-3.9.9/bin/mvn" ]; then MVN=".tools/apache-maven-3.9.9/bin/mvn"; fi
+    "$MVN" -q package -DskipTests
     if [ $? -ne 0 ]; then
         echo "[ERROR] Maven build failed."
         exit 1
@@ -23,7 +26,8 @@ if [ ! -f "target/classdrop-1.0.0.jar" ]; then
 fi
 
 echo "[INFO] Starting ClassDrop Host Hub..."
-echo "[TIP]  For classroom usage, enable Mobile Hotspot or connect to the same Wi-Fi subnet."
+echo "[TIP]  Offline: enable Mobile Hotspot, wait for OFFLINE READY, Fix Firewall once."
+echo "[TIP]  Students join teacher hotspot (mobile data OFF) -> http://192.168.137.1:8080"
 echo ""
 
 java -jar target/classdrop-1.0.0.jar "$@"
